@@ -3,7 +3,7 @@
 
 Contributors: Joyce Li, Aiden Guan, Mia Wang, Noah Lee, Anu Jajodia
 
-Start:
+Start: (Jupyter notebook guide: https://www.youtube.com/watch?v=5pf0_bpNbkw)
 * Git pull
 * Create a conda environment with conda create ___
 * Add Jupyter to your environment with pip install jupyter
