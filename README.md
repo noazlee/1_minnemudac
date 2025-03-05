@@ -16,6 +16,7 @@ How to contribute:
 * Code on that branch - add it to main when you're ready
 * Make sure to leave comments and note which files you are contributing to
 * Make a pull request to bring the code back to the main branch when you are done - (also if you are going to entirely code on a new file, you don't really need to make a new branch, just work on main)
+* Also: we will be working with github issues, if you are working on something, it should probably be an issue so we can keep track of it. If there is no issue, add a new one. If it is part of another issue, you can edit an existing one.
 
 
 Warning: Cant push /data folder due to github file constraints. Make sure to download the data on your own and make a Data folder with the following files:
