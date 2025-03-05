@@ -1,4 +1,4 @@
-# noah_minnemudac
+# 1_minnemudac
 ## repo for MinneMUDAC 2025
 
 Contributors: Joyce Li, Aiden Guan, Mia Wang, Noah Lee, Anu Jajodia
