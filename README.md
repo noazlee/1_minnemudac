@@ -23,6 +23,6 @@ Warning: Cant push /data folder due to github file constraints. Make sure to dow
 * Novice.csv
 * Test_Truncated.csv
 * Training.csv
-
+Careful though because the data on the drive is not in csv format. Open the sheet and download it as a csv manually.
 
 conda activate myenv
