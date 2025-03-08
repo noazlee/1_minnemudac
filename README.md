@@ -6,8 +6,10 @@ Contributors: Joyce Li, Aiden Guan, Mia Wang, Noah Lee, Anu Jajodia
 Stuff we have done so far (on Novice):
 
 in df_cleaning_and_alignment:
-* Created Alignment Gender Column
+* Created Alignment Gender Column, interest columns, key word columns from 'Rationale for Match'
+* Converted columns to appropriate data type - numeric, categorical, date
 * Investigated missingness - correlated with Match Length - heavily!! missingness NOT random.
+* Investigate missingness by date
 * Did key word analysis on 'Rationale for Match' - VERY IMPORTANT - added interest columns from that.
 * Imputed data with less that 5% missing data and low variance with mean/median/mode
 * Tried creating imputing synthetic data in 'Big Days Acceptance to Match' - using RFR pipeline
