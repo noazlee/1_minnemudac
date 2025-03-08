@@ -3,6 +3,16 @@
 
 Contributors: Joyce Li, Aiden Guan, Mia Wang, Noah Lee, Anu Jajodia
 
+Stuff we have done so far (on Novice):
+
+in df_cleaning_and_alignment:
+* Created Alignment Gender Column
+* Investigated missingness - correlated with Match Length - heavily!! missingness NOT random.
+* Did key word analysis on 'Rationale for Match' - VERY IMPORTANT - added interest columns from that.
+* Imputed data with less that 5% missing data and low variance with mean/median/mode
+* Tried creating imputing synthetic data in 'Big Days Acceptance to Match' - using RFR pipeline
+* Tried ridge regression on whole model (must make a better one later)
+
 Start: (Jupyter notebook guide: https://www.youtube.com/watch?v=5pf0_bpNbkw)
 * Git pull
 * Create a conda environment with conda create ___
@@ -25,4 +35,3 @@ Warning: Cant push /data folder due to github file constraints. Make sure to dow
 * Training.csv
 Careful though because the data on the drive is not in csv format. Open the sheet and download it as a csv manually.
 
-conda activate myenv
