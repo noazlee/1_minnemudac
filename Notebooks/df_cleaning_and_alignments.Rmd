@@ -12,7 +12,6 @@ editor_options:
 
 ```{r setup}
 #| include: false
-# Load necessary packages
 library(tidyverse)
 library(tidymodels)
 library(naniar)    # For visualizing missing data
@@ -60,14 +59,12 @@ vis_miss(df)
 
 
 ```{r}
-# Ensure your function uses the correct column name (Match Length or Match_Length)
 compare_match_length_by_missingness <- function(df, column_name) {
   # Create binary indicator for missingness
   is_missing <- is.na(df[[column_name]])
   
-  # Make sure to use the correct match length column name - note the space vs underscore
-  length_when_missing <- df[is_missing, "Match.Length"]  # Use exact column name from your data
-  length_when_present <- df[!is_missing, "Match.Length"]  # Use exact column name from your data
+  length_when_missing <- df[is_missing, "Match.Length"] 
+  length_when_present <- df[!is_missing, "Match.Length"]
   
   # Check if we have enough data
   if (sum(is_missing) == 0 || sum(!is_missing) == 0) {
@@ -126,13 +123,10 @@ compare_match_length_by_missingness <- function(df, column_name) {
   ))
 }
 
-# Let's examine a single column to see what's happening
-# Pick a column that definitely has missing values
 test_column <- names(df)[which.max(colSums(is.na(df)))]
 test_result <- compare_match_length_by_missingness(df, test_column)
 print(test_result)
 
-# Now run the analysis with better error handling
 columns_to_check <- names(df)[colSums(is.na(df)) > 0]
 results <- list()
 
@@ -174,7 +168,6 @@ if (length(results) > 0) {
 
 Looking at 'Rationale for Match'
 ```{r}
-# Load required packages
 library(tidyverse)
 library(stringr)
 library(tidytext)
@@ -676,18 +669,16 @@ df
 
 
 ```{r}
-# Model was way better on python - lets just impute data from there and use the csv generated from that python script.
-# Load necessary libraries
 library(tidymodels)
 library(dplyr)
-library(dials)
 library(ranger)
 
-# Clean the column names in your data frame
+set.seed(8080)
+
+# Clean and prepare data
 df_cleaned <- df %>%
   rename_with(~ gsub("[ /-]", ".", .x))
 
-# Define the features and target
 features <- c(
   'Big.Age',
   'Big.Occupation', 
@@ -705,19 +696,44 @@ features <- c(
 )
 target <- 'Big.Days.Acceptance.to.Match'
 
-# Remove rows where the target variable is missing
-df_cleaned_no_missing <- df_cleaned %>%
-  filter(!is.na(Big.Days.Acceptance.to.Match))
+# Remove rows where target is missing for training
+df_train_data <- df_cleaned %>%
+  filter(!is.na(!!sym(target)))
 
-# Split the data into training, validation, and testing sets
-set.seed(8080)  # For reproducibility
-data_split <- initial_split(df_cleaned_no_missing, prop = 0.8)  # 80% training, 20% testing
-car_train <- training(data_split)
-car_validation <- testing(data_split)
-car_test <- df_cleaned %>%
-  filter(is.na(Big.Days.Acceptance.to.Match))
+# Create test data from rows with missing target
+df_test_data <- df_cleaned %>%
+  filter(is.na(!!sym(target)))
 
-# Define the random forest model specification with tuning parameters
+# Create a simple data split
+data_split <- initial_split(df_train_data, prop = 0.8)
+train_data <- training(data_split)
+val_data <- testing(data_split)
+
+# Create the recipe with proper handling of date columns
+rf_recipe <- 
+  recipe(formula = as.formula(paste(target, "~", paste(features, collapse = "+"))), 
+         data = train_data) %>%
+  # Convert dates to numeric first
+  step_mutate(
+    Match.Activation.Date = as.numeric(as.Date(Match.Activation.Date) - as.Date("1940-01-01")),
+    Big.Birthdate = as.numeric(as.Date(Big.Birthdate) - as.Date("1940-01-01")),
+    Big.Approved.Date = as.numeric(as.Date(Big.Approved.Date) - as.Date("1940-01-01"))
+  ) %>%
+  # Handle missing values
+  step_impute_mode(all_nominal_predictors()) %>%
+  step_impute_median(all_numeric_predictors()) %>%
+  step_impute_knn(all_numeric_predictors()) %>%
+  # Convert categorical variables to factors
+  step_string2factor(all_nominal_predictors()) %>%
+  step_other(all_nominal_predictors(), threshold = 0.01) %>%
+  step_zv(all_predictors())
+
+# Test if the recipe preprocessing works
+prepped_recipe <- prep(rf_recipe, training = train_data, verbose = TRUE)
+processed_data <- bake(prepped_recipe, new_data = NULL)
+print("Recipe preprocessing successful!")
+
+# Define the random forest model specification
 rf_spec <- 
   rand_forest(
     trees = tune(),
@@ -725,82 +741,76 @@ rf_spec <-
     min_n = tune()
   ) %>%
   set_mode("regression") %>%
-  set_engine("ranger", importance = "impurity") %>%
-  set_args(max.depth = tune())  # Use set_args for engine-specific parameters
-
-# Create a custom function to impute the median date
-impute_median_date <- function(x) {
-  ifelse(is.na(x), median(x, na.rm = TRUE), x)
-}
-
-# Create the recipe with imputation
-ranger_recipe <- 
-  recipe(formula = as.formula(paste(target, "~", paste(features, collapse = "+"))), 
-         data = car_train) %>%
-  step_impute_mean(all_numeric_predictors()) %>%  # Impute numeric columns with mean
-  step_impute_mode(all_nominal_predictors()) %>%  # Impute categorical columns with mode
-  step_mutate(across(contains("Date"), ~ impute_median_date(.x)))  # Impute date columns with median date
+  set_engine("ranger", importance = "impurity")
 
 # Create the workflow
 ranger_workflow <- 
   workflow() %>%
-  add_recipe(ranger_recipe) %>%
-  add_model(rf_spec) 
+  add_recipe(rf_recipe) %>%
+  add_model(rf_spec)
 
-# Create a grid with proper parameter names
-rf_grid <- expand.grid(
-  trees = c(50, 100, 200),
-  mtry = c(2, 4, 6),
-  min_n = c(2, 5, 10),
-  max.depth = c(10, 20, 30)
+# Create a simpler tuning grid
+rf_grid <- expand_grid(
+  trees = c(100, 200),
+  mtry = c(3, 5),
+  min_n = c(5, 10)
 )
 
-# Set up cross-validation folds
-set.seed(8080)
-folds <- vfold_cv(car_train, v = 5)  # 5-fold cross-validation
+# Set up cross-validation
+folds <- vfold_cv(train_data, v = 5)
 
-# Perform grid search with cross-validation (this was missing in your code)
+# Perform grid search with cross-validation
 tune_results <- tune_grid(
   ranger_workflow,
   resamples = folds,
   grid = rf_grid,
-  metrics = metric_set(rmse, mae, rsq)  # Metrics to evaluate
+  metrics = metric_set(rmse, mae, rsq)
 )
 
-# Select the best model based on RMSE
-best_model <- select_best(tune_results, metric = "rmse")
+# Select the best model based on MAE to match Python
+best_model <- select_best(tune_results, metric = "mae")
 
 # Finalize the workflow with the best hyperparameters
 final_workflow <- finalize_workflow(ranger_workflow, best_model)
 
-# Fit the final model on the full training set
-final_fit <- fit(final_workflow, data = car_train)
+# Fit the final model
+final_fit <- fit(final_workflow, data = df_train_data)
 
 # Predict on the validation set
-validation_predictions <- predict(final_fit, new_data = car_validation)
+validation_predictions <- predict(final_fit, new_data = val_data)
 
-# Add predictions to the validation set for evaluation
-validation_results <- car_validation %>%
+# Add predictions to the validation set
+validation_results <- val_data %>%
   bind_cols(validation_predictions) %>%
   rename(predicted = .pred)
 
-# Evaluate model performance on the validation set
+# Evaluate model performance
 validation_metrics <- validation_results %>%
-  metrics(truth = Big.Days.Acceptance.to.Match, estimate = predicted)
+  metrics(truth = !!sym(target), estimate = predicted)
 
 # Print validation metrics
 print(validation_metrics)
 
 # Predict missing values in the test set
-test_predictions <- predict(final_fit, new_data = car_test)
+test_predictions <- predict(final_fit, new_data = df_test_data)
 
-# Replace missing values in 'Big.Days.Acceptance.to.Match' with predicted values
-car_test <- car_test %>%
+# Replace missing values with predicted values
+imputed_data <- df_test_data %>%
   bind_cols(test_predictions) %>%
-  mutate(Big.Days.Acceptance.to.Match = ifelse(is.na(Big.Days.Acceptance.to.Match), .pred, Big.Days.Acceptance.to.Match)) %>%
+  mutate(!!sym(target) := .pred) %>%
   select(-.pred)
 
-# View the updated test set with imputed values
-head(car_test)
+# Combine the original data with non-missing target and the imputed data
+final_data <- bind_rows(
+  df_train_data,
+  imputed_data
+)
+
+# Print summary statistics
+print("Summary of imputed values:")
+summary(imputed_data[[target]])
+```
+```{r}
+show_notes(.Last.tune.result)
 ```
 
