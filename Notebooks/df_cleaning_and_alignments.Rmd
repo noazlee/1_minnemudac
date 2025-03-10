@@ -1,0 +1,806 @@
+---
+title: "STAMP Quiz Diagnostic F23-W24"
+subtitle: "Noah Lee"
+output:
+  pdf_document: default
+  html_document: default
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+
+```{r setup}
+#| include: false
+# Load necessary packages
+library(tidyverse)
+library(tidymodels)
+library(naniar)    # For visualizing missing data
+library(dplyr)
+library(ggformula)
+library(ggplot2) 
+library(GGally)
+
+library(lubridate)  # For date handling
+library(ranger)     # Fast implementation of Random Forest 
+library(workflows)  # To create modeling workflows
+library(recipes)    # For feature engineering
+tidymodels_prefer(quiet = TRUE) 
+```
+
+```{r}
+df <- read.csv('../Data/Novice.csv')
+```
+
+```{r}
+# Initial Inspection
+print("Initial Inspection:")
+str(df)
+head(df)
+```
+
+```{r}
+# Apply na_if only to character and factor columns
+df <- df %>% 
+  mutate(across(where(is.character), ~na_if(., ""))) %>%
+  mutate(across(where(is.character), ~na_if(., " "))) %>%
+  mutate(across(where(is.factor), ~na_if(as.character(.), "") %>% factor()))
+
+```
+
+
+```{r}
+cat("\nMissing values per column:\n")
+colSums(is.na(df))
+```
+```{r}
+vis_miss(df) 
+```
+
+
+
+```{r}
+# Ensure your function uses the correct column name (Match Length or Match_Length)
+compare_match_length_by_missingness <- function(df, column_name) {
+  # Create binary indicator for missingness
+  is_missing <- is.na(df[[column_name]])
+  
+  # Make sure to use the correct match length column name - note the space vs underscore
+  length_when_missing <- df[is_missing, "Match.Length"]  # Use exact column name from your data
+  length_when_present <- df[!is_missing, "Match.Length"]  # Use exact column name from your data
+  
+  # Check if we have enough data
+  if (sum(is_missing) == 0 || sum(!is_missing) == 0) {
+    return(data.frame(
+      column = column_name,
+      missing_count = sum(is_missing),
+      present_count = sum(!is_missing),
+      mean_when_missing = NA,
+      mean_when_present = NA,
+      difference = NA,
+      percent_difference = NA,
+      p_value = NA,
+      significant = NA
+    ))
+  }
+  
+  # Simple check to make sure we have data to work with
+  print(paste("Analyzing column:", column_name))
+  print(paste("Missing values:", sum(is_missing)))
+  print(paste("Present values:", sum(!is_missing)))
+  
+  # Calculate basic statistics (safely)
+  mean_when_missing <- if(length(length_when_missing) > 0) mean(length_when_missing, na.rm = TRUE) else NA
+  mean_when_present <- if(length(length_when_present) > 0) mean(length_when_present, na.rm = TRUE) else NA
+  
+  # Calculate difference and percent difference safely
+  diff_value <- mean_when_missing - mean_when_present
+  percent_diff <- if(!is.na(mean_when_present) && mean_when_present != 0) {
+    (diff_value / mean_when_present) * 100
+  } else {
+    NA
+  }
+  
+  # Only perform t-test if we have enough data
+  if(length(length_when_missing) > 1 && length(length_when_present) > 1) {
+    t_test_result <- tryCatch({
+      t.test(length_when_missing, length_when_present, var.equal = FALSE)
+    }, error = function(e) {
+      return(list(p.value = NA))
+    })
+    p_value <- t_test_result$p.value
+  } else {
+    p_value <- NA
+  }
+  
+  return(data.frame(
+    column = column_name,
+    missing_count = sum(is_missing),
+    present_count = sum(!is_missing),
+    mean_when_missing = mean_when_missing,
+    mean_when_present = mean_when_present,
+    difference = diff_value,
+    percent_difference = percent_diff,
+    p_value = p_value,
+    significant = !is.na(p_value) && p_value < 0.05
+  ))
+}
+
+# Let's examine a single column to see what's happening
+# Pick a column that definitely has missing values
+test_column <- names(df)[which.max(colSums(is.na(df)))]
+test_result <- compare_match_length_by_missingness(df, test_column)
+print(test_result)
+
+# Now run the analysis with better error handling
+columns_to_check <- names(df)[colSums(is.na(df)) > 0]
+results <- list()
+
+for (col in columns_to_check) {
+  result <- compare_match_length_by_missingness(df, col)
+  if (!all(is.na(result))) {  # Only keep meaningful results
+    results[[col]] <- result
+  }
+}
+```
+
+
+```{r}
+# Combine results and check structure
+if (length(results) > 0) {
+  results_df <- bind_rows(results)
+  print(dim(results_df))
+  print(head(results_df))
+  
+  # Now you can filter and sort
+  results_df <- results_df %>%
+    filter(!is.na(p_value)) %>%  # Remove entries without valid p-values
+    arrange(desc(significant), desc(abs(percent_difference)))  # Sort by significance and absolute difference
+  
+  # Print any significant findings
+  significant_results <- results_df %>% 
+    filter(significant == TRUE) 
+  
+  if (nrow(significant_results) > 0) {
+    print("Significant findings:")
+    print(head(significant_results, 10))
+  } else {
+    print("No significant findings detected.")
+  }
+} else {
+  print("No valid results were generated. Check your data structure.")
+}
+```
+
+Looking at 'Rationale for Match'
+```{r}
+# Load required packages
+library(tidyverse)
+library(stringr)
+library(tidytext)
+library(scales)
+
+# First, clean and prepare the text
+clean_text <- function(text) {
+  if (is.character(text)) {
+    # Convert to lowercase
+    text <- tolower(text)
+    # Remove special characters and extra spaces
+    text <- str_replace_all(text, "[^[:alnum:][:space:]]", " ")
+    text <- str_squish(text)
+    return(text)
+  }
+  return("")
+}
+
+# Apply cleaning to non-null values
+rationales <- df %>%
+  filter(!is.na(Rationale.for.Match)) %>%
+  mutate(clean_rationale = map_chr(Rationale.for.Match, clean_text))
+
+# Create a list of common interest categories to search for
+interest_categories <- list(
+  sports = c("sport", "baseball", "basketball", "football", "soccer", "tennis", "golf", 
+             "swimming", "hockey", "volleyball", "athletic", "exercise", "gym", "workout",
+             "running", "biking", "skating", "skiing", "snowboarding", "martial arts"),
+  arts = c("art", "drawing", "painting", "music", "singing", "dancing", "crafts", "creative",
+           "writing", "poetry", "theatre", "drama", "acting", "photography", "playing music",
+           "instrument", "band", "choir", "piano", "guitar"),
+  outdoors = c("outdoor", "hiking", "camping", "fishing", "hunting", "nature", "gardening",
+               "environmental", "animals", "wildlife", "birds", "park", "beach", "forest", "mountain"),
+  academics = c("school", "learning", "study", "education", "academic", "reading", "books",
+                "science", "math", "history", "homework", "college", "university", "teaching",
+                "student", "classroom", "grades", "tutor"),
+  technology = c("technology", "computer", "coding", "programming", "video games", "gaming",
+                 "online", "internet", "digital", "software", "hardware", "engineering",
+                 "electronics", "robotics", "tech"),
+  social = c("social", "talking", "conversation", "friends", "relationships", "community",
+             "leadership", "communication", "group", "teamwork", "helping others", "volunteer"),
+  food = c("food", "cooking", "baking", "eating", "restaurant", "cuisine", "meal", "recipe",
+           "culinary", "chef", "dinner", "lunch", "breakfast", "snack", "dessert"),
+  cultural = c("culture", "language", "heritage", "tradition", "religious", "spiritual",
+               "ethnic", "diversity", "identity", "cultural activities"),
+  personality_traits = c("shy", "outgoing", "quiet", "talkative", "energetic", "calm", "patient",
+                         "creative", "organized", "responsible", "humor", "funny", "serious",
+                         "thoughtful", "kind", "caring", "empathetic", "confident"),
+  family = c("family", "parent", "sibling", "brother", "sister", "mom", "dad", "grandparent",
+             "family activities", "family time", "home", "household")
+)
+
+# Function to check if any keyword in a category appears in the text
+check_category_keywords <- function(text, keywords) {
+  if (is.na(text)) return(FALSE)
+  
+  any(sapply(keywords, function(keyword) {
+    # Use word boundaries to match whole words only
+    pattern <- paste0("\\b", keyword, "\\b")
+    str_detect(text, pattern)
+  }))
+}
+
+# Create interest category features
+print("Creating interest category features...")
+for (category_name in names(interest_categories)) {
+  column_name <- paste0("interest_", category_name)
+  keywords <- interest_categories[[category_name]]
+  
+  # Add column to the dataframe
+  df[[column_name]] <- FALSE
+  
+  # Set to TRUE where the rationale contains at least one keyword from the category
+  df[!is.na(df$Rationale.for.Match), column_name] <- 
+    sapply(df$Rationale.for.Match[!is.na(df$Rationale.for.Match)], 
+           function(x) check_category_keywords(clean_text(x), keywords))
+  
+  # Count occurrences
+  count <- sum(df[[column_name]], na.rm = TRUE)
+  percent <- count / nrow(df) * 100
+  
+  cat(sprintf("- %s: %d matches (%.1f%% of all records)\n", 
+              column_name, count, percent))
+}
+
+# Extract all individual words for frequency analysis
+all_words <- rationales %>%
+  unnest_tokens(word, clean_rationale) 
+
+# Count word frequency
+word_freq <- all_words %>%
+  count(word, sort = TRUE)
+
+# Remove common stop words
+stop_words_custom <- c(
+  stop_words$word, 
+  "share", "shared", "sharing", "interests", "interest", "name", "like", "likes", 
+  "including", "include", "well", "just", "about", "think", "want", "wants", 
+  "able", "all", "any", "are", "bs", "ls", "bb", "lb", "bbbs", "match", "matches", "matched"
+)
+
+filtered_words <- word_freq %>%
+  filter(!word %in% stop_words_custom, str_length(word) > 2)
+
+# Get top 50 most common words
+top_words <- filtered_words %>%
+  slice_head(n = 50)
+
+# Plot the top words
+ggplot(top_words, aes(x = reorder(word, n), y = n)) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Top 50 Words in Rationale for Match",
+       x = "Word",
+       y = "Frequency") +
+  theme_minimal()
+
+# Create a new feature for each common interest that appears frequently
+threshold <- nrow(df) * 0.03  # 3% of records
+common_interests <- filtered_words %>%
+  filter(n > threshold) %>%
+  pull(word)
+
+cat(sprintf("\nFound %d common interests appearing in > 3%% of records:\n", length(common_interests)))
+cat(paste(common_interests[1:min(20, length(common_interests))], collapse = ", "))
+if (length(common_interests) > 20) cat(", ...")
+cat("\n")
+
+# Create binary features for the most common interests
+for (interest in common_interests[1:min(20, length(common_interests))]) {
+  column_name <- paste0("has_", interest)
+  
+  # Add column to the dataframe
+  df[[column_name]] <- FALSE
+  
+  # Set to TRUE where the rationale contains this interest
+  df[!is.na(df$Rationale.for.Match), column_name] <- 
+    sapply(df$Rationale.for.Match[!is.na(df$Rationale.for.Match)], 
+           function(x) str_detect(clean_text(x), paste0("\\b", interest, "\\b")))
+  
+  # Count occurrences
+  count <- sum(df[[column_name]], na.rm = TRUE)
+  percent <- count / nrow(df) * 100
+  
+  cat(sprintf("- %s: %d matches (%.1f%% of records)\n", 
+              column_name, count, percent))
+}
+
+# Analyze the relationship between interests and match length
+cat("\nAnalyzing relationship between interests and match length...\n")
+interest_columns <- df %>%
+  select(starts_with("interest_") | starts_with("has_")) %>%
+  names()
+
+interest_impact <- tibble()
+
+for (col in interest_columns) {
+  # Calculate average match length when interest is present vs. absent
+  avg_length_present <- df %>%
+    filter(.data[[col]] == TRUE) %>%
+    summarize(avg = mean(Match.Length, na.rm = TRUE)) %>%
+    pull(avg)
+  
+  avg_length_absent <- df %>%
+    filter(.data[[col]] == FALSE) %>%
+    summarize(avg = mean(Match.Length, na.rm = TRUE)) %>%
+    pull(avg)
+  
+  diff_percent <- ifelse(avg_length_absent > 0,
+                         ((avg_length_present - avg_length_absent) / avg_length_absent * 100),
+                         Inf)
+  
+  count_present <- sum(df[[col]], na.rm = TRUE)
+  percent_records <- count_present / nrow(df) * 100
+  
+  # Print details
+  cat(sprintf("- %s: Present: %.1f months, Absent: %.1f months (Difference: %+.1f%%)\n",
+             col, avg_length_present, avg_length_absent, diff_percent))
+  
+  # Add to summary dataframe
+  interest_impact <- interest_impact %>%
+    bind_rows(tibble(
+      interest = col,
+      avg_length_present = avg_length_present,
+      avg_length_absent = avg_length_absent,
+      diff_percent = diff_percent,
+      count = count_present,
+      percent_records = percent_records
+    ))
+}
+
+# Sort by impact on match length
+interest_impact <- interest_impact %>%
+  arrange(desc(diff_percent))
+
+# Display the top 10 interests that are most strongly associated with longer matches
+cat("\nTop 10 interests associated with LONGER matches:\n")
+interest_impact %>%
+  slice_head(n = 10) %>%
+  select(interest, avg_length_present, avg_length_absent, diff_percent, count, percent_records) %>%
+  print()
+
+# Display the bottom 10 interests that are most strongly associated with shorter matches
+cat("\nTop 10 interests associated with SHORTER matches:\n")
+interest_impact %>%
+  slice_tail(n = 10) %>%
+  select(interest, avg_length_present, avg_length_absent, diff_percent, count, percent_records) %>%
+  print()
+
+# Create a visualization of the impact of interests on match length
+interest_impact %>%
+  slice_max(abs(diff_percent), n = 15) %>%
+  mutate(interest = fct_reorder(interest, diff_percent)) %>%
+  ggplot(aes(x = interest, y = diff_percent, fill = diff_percent > 0)) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_manual(values = c("firebrick", "steelblue"),
+                    name = "Associated with",
+                    labels = c("Shorter matches", "Longer matches")) +
+  labs(title = "Impact of Interests on Match Length",
+       subtitle = "Percentage difference in average match length when interest is present vs. absent",
+       x = "Interest Category",
+       y = "% Difference in Match Length") +
+  theme_minimal()
+```
+
+Data Cleaning - Changing variable type:
+```{r}
+# Function to convert data types in a dataframe
+convert_df_dtypes <- function(df) {
+  # Create a copy to avoid modifying the original dataframe
+  df_converted <- df
+  
+  # Define column groups
+  date_columns <- c(
+    'Big.Approved.Date', 'Big.Birthdate', 'Match.Activation.Date', 
+    'Match.Closure.Meeting.Date', 'Big.Acceptance.Date', 
+    'Big.Contact..Created.Date', 'Big.Enrollment..Created.Date',
+    'Little.RTBM.Date.in.MF', 'Little.Application.Received',
+    'Little.Interview.Date', 'Little.Acceptance.Date', 'Little.Birthdate'
+  )
+  
+  numeric_columns <- c(
+    'Big.Age', 'Big.Days.Acceptance.to.Match', 'Big.Days.Interview.to.Acceptance',
+    'Big.Days.Interview.to.Match', 'Big.Re.Enroll', 'Little.RTBM.in.Matchforce',
+    'Little.Moved.to.RTBM.in.MF', 'Little.Mailing.Address.Census.Block.Group',
+    'Big.Home.Census.Block.Group', 'Big.Employer.School.Census.Block.Group',
+    'Match.Length'
+  )
+  
+  categorical_candidates <- c(
+    'Stage', 'Big.County', 'Big.Occupation', 'Big..Military',
+    'Big.Level.of.Education', 'Big.Gender', 'Program', 'Program.Type',
+    'Big.Race.Ethnicity', 'Closure.Reason', 'Big.Enrollment..Record.Type',
+    'Big.Assessment.Uploaded', 'Big.Open.to.Cross.Gender.Match',
+    'Big.Contact..Preferred.Communication.Type', 'Big.Contact..Former.Big.Little',
+    'Big.Contact..Marital.Status', 'Little.Gender', 'Little.Participant..Race.Ethnicity'
+  )
+  
+  id_columns <- c(
+    'Match.ID.18Char', 'Little.ID', 'Big.ID', 'Big.Employer'
+  )
+  
+  # Convert date columns
+  for (col in date_columns) {
+    if (col %in% names(df_converted)) {
+      df_converted <- df_converted %>%
+        mutate(!!sym(col) := as.Date(get(col), errors = "coerce"))
+    }
+  }
+  
+  # Convert numeric columns
+  for (col in numeric_columns) {
+    if (col %in% names(df_converted)) {
+      if (col == 'Big.Age') {
+        # Integer column
+        df_converted <- df_converted %>%
+          mutate(!!sym(col) := as.integer(get(col)))
+      } else {
+        # Float columns
+        df_converted <- df_converted %>%
+          mutate(!!sym(col) := as.numeric(get(col)))
+      }
+    }
+  }
+  
+  # Convert logical/boolean columns
+  logical_cols <- sapply(df_converted, is.logical)
+  if (any(logical_cols)) {
+    logical_col_names <- names(logical_cols)[logical_cols]
+    for (col in logical_col_names) {
+      # Keep as logical type
+      df_converted <- df_converted %>%
+        mutate(!!sym(col) := as.logical(get(col)))
+    }
+  }
+  
+  # Convert categorical columns
+  for (col in categorical_candidates) {
+    if (col %in% names(df_converted)) {
+      # Check if has relatively few unique values (less than 5% of row count)
+      n_unique <- df_converted %>% 
+        select(all_of(col)) %>% 
+        n_distinct()
+      
+      if (n_unique < nrow(df_converted) * 0.05) {
+        # Convert to factor (categorical)
+        df_converted <- df_converted %>%
+          mutate(!!sym(col) := as.factor(get(col)))
+      }
+    }
+  }
+  
+  # Convert ID columns to character type
+  for (col in id_columns) {
+    if (col %in% names(df_converted)) {
+      df_converted <- df_converted %>%
+        mutate(!!sym(col) := as.character(get(col)))
+    }
+  }
+  
+  # Convert remaining character/string columns
+  for (col in names(df_converted)) {
+    if (is.character(df_converted[[col]])) {
+      # Already character, no need to convert
+      next
+    } else if (is.factor(df_converted[[col]])) {
+      # Convert factors to character if not in categorical_candidates
+      if (!(col %in% categorical_candidates)) {
+        df_converted <- df_converted %>%
+          mutate(!!sym(col) := as.character(get(col)))
+      }
+    }
+  }
+  
+  return(df_converted)
+}
+
+library(tidyverse)
+
+df_converted <- convert_df_dtypes(df)
+
+# Display information about the dataframe
+cat("df_converted information:\n")
+glimpse(df_converted)
+
+# Display the first few rows
+cat("\nFirst few rows:\n")
+print(head(df_converted))
+
+# Check for missing values
+cat("\nMissing values per column:\n")
+missing_values <- sapply(df, function(x) sum(is.na(x)))
+print(missing_values)
+```
+Missingness by Date:
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(scales)
+library(gridExtra)
+
+# Function to analyze missingness patterns by activation date with quarterly binning
+analyze_missingness_by_quarter <- function(df, date_column = 'Match.Activation.Date') {
+  
+  # Extract year and quarter from activation date and create a new column
+  df <- df %>% 
+    mutate(Activation_Quarter = paste0(year(get(date_column)), "-Q", quarter(get(date_column))))
+  
+  # Dictionary to store results
+  missingness_over_time <- list()
+  
+  # Get count of records per quarter for reference
+  quarterly_counts <- df %>% 
+    group_by(Activation_Quarter) %>% 
+    summarize(count = n())
+  
+  # Calculate missingness for each column by activation quarter
+  for (col in colnames(df)) {
+    if (col != date_column && col != "Activation_Quarter") {
+      # Calculate percent missing for each quarter
+      missingness <- df %>% 
+        group_by(Activation_Quarter) %>% 
+        summarize(missingness = mean(is.na(get(col))) * 100)
+      
+      missingness_over_time[[col]] <- missingness
+    }
+  }
+  
+  return(list(missingness_over_time = missingness_over_time, quarterly_counts = quarterly_counts))
+}
+
+# Function to visualize the missingness patterns with quarterly binning
+plot_missingness_patterns_by_quarter <- function(df, top_n = 10, date_column = 'Match.Activation.Date') {
+  # Calculate overall missingness for each column
+  overall_missingness <- df %>%
+    summarize(across(everything(), ~mean(is.na(.)) * 100)) %>%
+    pivot_longer(cols = everything(), names_to = "column", values_to = "percent_missing") %>%
+    arrange(desc(percent_missing))
+  
+  # Select top N columns with highest missingness
+  top_missing_cols <- head(overall_missingness$column, top_n)
+  
+  # Analyze missingness by quarter
+  result <- analyze_missingness_by_quarter(df, date_column)
+  missingness_by_quarter <- result$missingness_over_time
+  quarterly_counts <- result$quarterly_counts
+  
+  # Plot 1: Overall missingness bar chart
+  p1 <- overall_missingness %>%
+    filter(column %in% top_missing_cols) %>%
+    ggplot(aes(x = percent_missing, y = reorder(column, percent_missing))) +
+    geom_bar(stat = "identity", fill = "skyblue") +
+    labs(title = paste("Top", top_n, "Columns with Highest Percentage of Missing Values"),
+         x = "Percentage Missing (%)",
+         y = "") +
+    theme_minimal() +
+    scale_x_continuous(limits = c(0, 100))
+  
+  # Plot 2: Missingness over time for top 5-10 columns (or choose subset if fewer than 10)
+  top5_missing_cols <- if(length(top_missing_cols) > 5) top_missing_cols[6:min(10, length(top_missing_cols))] else top_missing_cols
+  
+  # Create a data frame for plotting
+  plot_data <- data.frame()
+  
+  for (col in top5_missing_cols) {
+    if (col %in% names(missingness_by_quarter)) {
+      temp_data <- missingness_by_quarter[[col]]
+      temp_data$column <- col
+      plot_data <- rbind(plot_data, temp_data)
+    }
+  }
+  
+  # Only proceed with this plot if we have data
+  if(nrow(plot_data) > 0) {
+    # Sort periods for chronological display
+    all_quarters <- unique(plot_data$Activation_Quarter)
+    # Create a sorting key for proper chronological ordering
+    quarter_order <- order(sapply(strsplit(all_quarters, "-Q"), function(x) as.numeric(paste0(x[1], ".0", x[2]))))
+    all_quarters <- all_quarters[quarter_order]
+    
+    # Convert to factor to maintain order
+    plot_data$Activation_Quarter <- factor(plot_data$Activation_Quarter, levels = all_quarters)
+    
+    p2 <- ggplot(plot_data, aes(x = Activation_Quarter, y = missingness, group = column, color = column)) +
+      geom_line() +
+      geom_point() +
+      labs(title = "Missing Data Percentage by Quarter for Selected Columns",
+           x = "Activation Quarter",
+           y = "Percentage Missing (%)") +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1),
+            legend.title = element_blank()) +
+      scale_y_continuous(limits = c(0, 100)) +
+      scale_color_viridis_d()
+    
+    # Plot 3: Record count by quarter
+    quarterly_counts$Activation_Quarter <- factor(quarterly_counts$Activation_Quarter, levels = all_quarters)
+    
+    p3 <- ggplot(quarterly_counts, aes(x = Activation_Quarter, y = count)) +
+      geom_bar(stat = "identity", fill = "lightblue", alpha = 0.7) +
+      labs(title = "Number of Records by Quarter",
+           x = "Activation Quarter",
+           y = "Count") +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    
+    # Arrange plots
+    grid.arrange(p1, p2, p3, nrow = 3, heights = c(3, 4, 1))
+  } else {
+    # If we don't have data for the second plot, just show the first and third
+    p3 <- ggplot(quarterly_counts, aes(x = Activation_Quarter, y = count)) +
+      geom_bar(stat = "identity", fill = "lightblue", alpha = 0.7) +
+      labs(title = "Number of Records by Quarter",
+           x = "Activation Quarter",
+           y = "Count") +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    
+    grid.arrange(p1, p3, nrow = 2, heights = c(3, 1))
+  }
+}
+
+df$Match.Activation.Date <- as.Date(df$Match.Activation.Date) 
+plot_missingness_patterns_by_quarter(df)
+```
+
+
+Looking at `Big.Days.Acceptance.To.Match`
+```{r}
+sum(is.na(df$`Big.Days.Acceptance.to.Match`))
+```
+
+```{r}
+df
+```
+
+
+```{r}
+# Model was way better on python - lets just impute data from there and use the csv generated from that python script.
+# Load necessary libraries
+library(tidymodels)
+library(dplyr)
+library(dials)
+library(ranger)
+
+# Clean the column names in your data frame
+df_cleaned <- df %>%
+  rename_with(~ gsub("[ /-]", ".", .x))
+
+# Define the features and target
+features <- c(
+  'Big.Age',
+  'Big.Occupation', 
+  'Program', 
+  'Match.Length',  
+  'Match.Activation.Date', 
+  'Big.Gender',
+  'Big.Race.Ethnicity',
+  'Big.County',
+  'Program.Type',
+  'Big.Enrollment..Record.Type',
+  'Big.Birthdate',
+  'Big.Approved.Date',
+  'Big.Re.Enroll'
+)
+target <- 'Big.Days.Acceptance.to.Match'
+
+# Remove rows where the target variable is missing
+df_cleaned_no_missing <- df_cleaned %>%
+  filter(!is.na(Big.Days.Acceptance.to.Match))
+
+# Split the data into training, validation, and testing sets
+set.seed(8080)  # For reproducibility
+data_split <- initial_split(df_cleaned_no_missing, prop = 0.8)  # 80% training, 20% testing
+car_train <- training(data_split)
+car_validation <- testing(data_split)
+car_test <- df_cleaned %>%
+  filter(is.na(Big.Days.Acceptance.to.Match))
+
+# Define the random forest model specification with tuning parameters
+rf_spec <- 
+  rand_forest(
+    trees = tune(),
+    mtry = tune(),
+    min_n = tune()
+  ) %>%
+  set_mode("regression") %>%
+  set_engine("ranger", importance = "impurity") %>%
+  set_args(max.depth = tune())  # Use set_args for engine-specific parameters
+
+# Create a custom function to impute the median date
+impute_median_date <- function(x) {
+  ifelse(is.na(x), median(x, na.rm = TRUE), x)
+}
+
+# Create the recipe with imputation
+ranger_recipe <- 
+  recipe(formula = as.formula(paste(target, "~", paste(features, collapse = "+"))), 
+         data = car_train) %>%
+  step_impute_mean(all_numeric_predictors()) %>%  # Impute numeric columns with mean
+  step_impute_mode(all_nominal_predictors()) %>%  # Impute categorical columns with mode
+  step_mutate(across(contains("Date"), ~ impute_median_date(.x)))  # Impute date columns with median date
+
+# Create the workflow
+ranger_workflow <- 
+  workflow() %>%
+  add_recipe(ranger_recipe) %>%
+  add_model(rf_spec) 
+
+# Create a grid with proper parameter names
+rf_grid <- expand.grid(
+  trees = c(50, 100, 200),
+  mtry = c(2, 4, 6),
+  min_n = c(2, 5, 10),
+  max.depth = c(10, 20, 30)
+)
+
+# Set up cross-validation folds
+set.seed(8080)
+folds <- vfold_cv(car_train, v = 5)  # 5-fold cross-validation
+
+# Perform grid search with cross-validation (this was missing in your code)
+tune_results <- tune_grid(
+  ranger_workflow,
+  resamples = folds,
+  grid = rf_grid,
+  metrics = metric_set(rmse, mae, rsq)  # Metrics to evaluate
+)
+
+# Select the best model based on RMSE
+best_model <- select_best(tune_results, metric = "rmse")
+
+# Finalize the workflow with the best hyperparameters
+final_workflow <- finalize_workflow(ranger_workflow, best_model)
+
+# Fit the final model on the full training set
+final_fit <- fit(final_workflow, data = car_train)
+
+# Predict on the validation set
+validation_predictions <- predict(final_fit, new_data = car_validation)
+
+# Add predictions to the validation set for evaluation
+validation_results <- car_validation %>%
+  bind_cols(validation_predictions) %>%
+  rename(predicted = .pred)
+
+# Evaluate model performance on the validation set
+validation_metrics <- validation_results %>%
+  metrics(truth = Big.Days.Acceptance.to.Match, estimate = predicted)
+
+# Print validation metrics
+print(validation_metrics)
+
+# Predict missing values in the test set
+test_predictions <- predict(final_fit, new_data = car_test)
+
+# Replace missing values in 'Big.Days.Acceptance.to.Match' with predicted values
+car_test <- car_test %>%
+  bind_cols(test_predictions) %>%
+  mutate(Big.Days.Acceptance.to.Match = ifelse(is.na(Big.Days.Acceptance.to.Match), .pred, Big.Days.Acceptance.to.Match)) %>%
+  select(-.pred)
+
+# View the updated test set with imputed values
+head(car_test)
+```
+
