@@ -421,7 +421,7 @@ convert_df_dtypes <- function(df) {
   categorical_candidates <- c(
     'Stage', 'Big.County', 'Big.Occupation', 'Big..Military',
     'Big.Level.of.Education', 'Big.Gender', 'Program', 'Program.Type',
-    'Big.Race.Ethnicity', 'Closure.Reason', 'Big.Enrollment..Record.Type',
+    'Big.Race.Ethnicity', 'Big.Enrollment..Record.Type',
     'Big.Assessment.Uploaded', 'Big.Open.to.Cross.Gender.Match',
     'Big.Contact..Preferred.Communication.Type', 'Big.Contact..Former.Big.Little',
     'Big.Contact..Marital.Status', 'Little.Gender', 'Little.Participant..Race.Ethnicity'
@@ -509,6 +509,7 @@ convert_df_dtypes <- function(df) {
 library(tidyverse)
 
 df_converted <- convert_df_dtypes(df)
+df <- df_converted
 
 # Display information about the dataframe
 cat("df_converted information:\n")
@@ -658,16 +659,301 @@ plot_missingness_patterns_by_quarter(df)
 ```
 
 
+removing high missingness data
+```{r}
+
+# Calculate the number of missing values for each column
+na_counts <- sapply(df, function(x) sum(is.na(x)))
+
+# Print columns sorted by number of missing values (optional)
+na_counts_sorted <- sort(na_counts, decreasing = TRUE)
+print(na_counts_sorted)
+
+# Identify columns with more than 3000 missing values
+high_missing_cols <- names(na_counts[na_counts > 1900])
+print(paste("Columns with >3000 missing values to remove:", length(high_missing_cols)))
+print(high_missing_cols)
+
+# Check if we'd be removing all columns
+if (length(high_missing_cols) == ncol(df)) {
+  print("WARNING: All columns have >3000 missing values. No columns will be removed.")
+} else if (length(high_missing_cols) > 0) {
+  # Create new dataframe without high-missingness columns
+  df_reduced <- df[, !names(df) %in% high_missing_cols]
+  print(paste("Original dimensions:", dim(df)[1], "rows,", dim(df)[2], "columns"))
+  print(paste("New dimensions:", dim(df_reduced)[1], "rows,", dim(df_reduced)[2], "columns"))
+  
+  # Assign to df only if the result is not empty
+  if (ncol(df_reduced) > 0) {
+    df <- df_reduced
+    print("Successfully removed high-missingness columns.")
+  } else {
+    print("ERROR: Removing these columns would result in an empty dataframe. No changes made.")
+  }
+} else {
+  print("No columns with >3000 missing values found.")
+}
+
+```
+
+
 Looking at `Big.Days.Acceptance.To.Match`
 ```{r}
 sum(is.na(df$`Big.Days.Acceptance.to.Match`))
 ```
 
+
+```{r}
+result_big_days <- compare_match_length_by_missingness(df, "Big.Days.Acceptance.to.Match")
+print(result_big_days)
+```
+```{r}
+# Filter the missingness analysis only for 'Big.Days.Acceptance.to.Match'
+result <- analyze_missingness_by_quarter(df, date_column = 'Match.Activation.Date')
+big_days_missingness <- result$missingness_over_time[["Big.Days.Acceptance.to.Match"]]
+quarterly_counts <- result$quarterly_counts
+
+# Ensure data is available
+if (!is.null(big_days_missingness) && nrow(big_days_missingness) > 0) {
+  # Sort quarters for chronological order
+  all_quarters <- unique(big_days_missingness$Activation_Quarter)
+  quarter_order <- order(sapply(strsplit(all_quarters, "-Q"), function(x) as.numeric(paste0(x[1], ".0", x[2]))))
+  all_quarters <- all_quarters[quarter_order]
+  
+  # Convert to factor to maintain order
+  big_days_missingness$Activation_Quarter <- factor(big_days_missingness$Activation_Quarter, levels = all_quarters)
+  quarterly_counts$Activation_Quarter <- factor(quarterly_counts$Activation_Quarter, levels = all_quarters)
+  
+  # Plot missingness over time
+  p1 <- ggplot(big_days_missingness, aes(x = Activation_Quarter, y = missingness)) +
+    geom_line(color = "red") +
+    geom_point(color = "red") +
+    labs(title = "Missing Data Percentage for Big.Days.Acceptance.to.Match by Quarter",
+         x = "Activation Quarter",
+         y = "Percentage Missing (%)") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    scale_y_continuous(limits = c(0, 100))
+  
+  # Plot record count per quarter
+  p2 <- ggplot(quarterly_counts, aes(x = Activation_Quarter, y = count)) +
+    geom_bar(stat = "identity", fill = "lightblue", alpha = 0.7) +
+    labs(title = "Number of Records by Quarter",
+         x = "Activation Quarter",
+         y = "Count") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  # Arrange plots
+  grid.arrange(p1, p2, nrow = 2, heights = c(3, 1))
+} else {
+  print("No missingness data available for Big.Days.Acceptance.to.Match")
+}
+
+```
+Heavily correlated with date - maybe date is a big feature in predicting Match Length?
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+#df$Match.Activation.Date <- as.Date("1940-01-01") + as.numeric(df$Match.Activation.Date)
+
+# Ensure the date column is in Date format
+df <- df %>%
+  mutate(Match.Activation.Date = as.Date(Match.Activation.Date))
+
+# Create the plot
+ggplot(df, aes(x = Match.Activation.Date, y = Match.Length)) +
+  geom_point(alpha = 0.5, color = "blue") +  # Scatter plot with transparency
+  geom_smooth(method = "loess", color = "red", se = TRUE) +  # Trend line
+  labs(title = "Match Length Over Activation Date",
+       x = "Activation Date",
+       y = "Match Length") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+explore scaling of match length - proportion of time possible? normalization based on how long ago- maybe get current matches? or just current matches from recent - SURVIVAL ANALYSIS! - Log rank test - for differences in groups when it comes to target variable. Probably heavily right tailed data - consider logging - Kaplan Meier Curve - Proportional Hazards model 
+Impute data first, then try proportional hazards model.
+
+look at imputation on date? amelia
+Trying Amelia: - didnt work
+
 ```{r}
 df
 ```
 
+'Closure.Reason', 'Big.Occupation', 'Big.Languages' - Text fields - synthesize into smaller categories
+```{r}
+# Function to categorize text fields based on keywords
+categorize_text <- function(text_vector, category_rules, default_category = "Other") {
+  result <- rep(default_category, length(text_vector))
+  
+  if(any(is.na(text_vector))) {
+    result[is.na(text_vector)] <- NA
+  }
+  
+  for(i in 1:length(category_rules)) {
+    category_name <- names(category_rules)[i]
+    keywords <- category_rules[[i]]
+    
+    for(j in which(!is.na(text_vector))) {
+      if(any(sapply(keywords, function(kw) grepl(kw, text_vector[j], ignore.case = TRUE)))) {
+        result[j] <- category_name
+      }
+    }
+  }
+  
+  result <- factor(result)
+  return(result)
+}
 
+# Define category rules for each text field
+closure_reason_rules <- list(
+  "Scheduling_Issues" = c("schedule", "time", "availability", "busy"),
+  "Relationship_Problems" = c("relationship", "conflict", "disagree", "personal", "not compatible"),
+  "Relocation" = c("move", "moved", "relocation", "relocate", "different city", "different state"),
+  "Family_Issues" = c("family", "parent", "guardian", "parental"),
+  "School_Issues" = c("school", "academic", "education", "grade"),
+  "Health_Issues" = c("health", "illness", "medical", "sick", "disease"),
+  "Behavior_Issues" = c("behavior", "conduct", "attitude", "disciplin"),
+  "Program_Requirements" = c("requirement", "qualify", "eligibility", "criteria", "guideline")
+)
+
+occupation_rules <- list(
+  "Business_Finance" = c("account", "financ", "budget", "analyst", "bank", "economic", "market", "business"),
+  "Education" = c("teach", "professor", "instructor", "education", "academic", "school", "college", "university"),
+  "Healthcare" = c("doctor", "nurse", "medical", "health", "dental", "therapist", "clinic", "hospital"),
+  "Technology" = c("software", "developer", "engineer", "IT", "computer", "tech", "program", "web", "data"),
+  "Legal" = c("lawyer", "attorney", "legal", "law", "judge", "paralegal"),
+  "Arts_Media" = c("artist", "design", "writer", "media", "journalist", "creative", "music", "film"),
+  "Service_Industry" = c("retail", "sales", "service", "hospitality", "restaurant", "customer"),
+  "Trades_Labor" = c("construct", "mechanic", "carpenter", "electric", "plumb", "repair", "builder", "labor"),
+  "Student" = c("student", "graduate", "undergrad"),
+  "Retired" = c("retire")
+)
+
+languages_rules <- list(
+  "English_Only" = c("english only", "only english", "just english"),
+  "Spanish" = c("spanish", "español"),
+  "French" = c("french", "français"),
+  "Asian_Languages" = c("chinese", "mandarin", "cantonese", "japanese", "korean", "vietnamese", "thai"),
+  "European_Languages" = c("german", "italian", "portuguese", "dutch", "russian", "polish", "greek"),
+  "Middle_Eastern" = c("arabic", "hebrew", "farsi", "turkish", "persian"),
+  "Multiple_Languages" = c("bilingual", "multilingual", "fluent in", "speaks multiple")
+)
+
+# Example usage:
+# Assuming your data is in a dataframe called 'data'
+df$Closure_Reason_Category <- categorize_text(df$Closure.Reason, closure_reason_rules)
+df$Occupation_Category <- categorize_text(df$Big.Occupation, occupation_rules)
+df$Languages_Category <- categorize_text(df$Big.Languages, languages_rules)
+```
+
+```{r}
+# Closure.Reason basically covers Closure.Details - remove it
+df$Closure.Details <- NULL
+df$Closure.Reason <- NULL
+df$Rationale.for.Match <- NULL
+df$Big.Occupation <- NULL
+df$Big.Languages <- NULL
+df
+```
+
+
+```{r}
+library(Amelia)
+library(lubridate)
+
+# 1. Remove Interest.Finder columns
+interest_finder_cols <- grep("Interest.Finder", names(df), value = TRUE)
+print(paste("Removing", length(interest_finder_cols), "Interest.Finder columns"))
+df_clean <- df[, !names(df) %in% interest_finder_cols]
+
+# 2. Define column types
+date_columns <- c(
+  'Big.Approved.Date', 'Big.Birthdate', 'Match.Activation.Date',
+  'Little.Birthdate'
+)
+
+numeric_columns <- c(
+  'Big.Age', 'Match.Length', 
+  'Little.Mailing.Address.Census.Block.Group',
+  'Big.Home.Census.Block.Group'
+)
+
+categorical_columns <- c(
+  'Big.Race.Ethnicity', 'Big.Gender', 'Little.Gender',
+  'Little.Participant..Race.Ethnicity',
+  'Big.Languages',
+  'Stage', 'Program', 'Program.Type', 'Big.County',
+  'interest_sports', 'interest_arts', 'interest_outdoors', 'interest_academics',
+  'interest_technology', 'interest_social', 'interest_food', 'interest_cultural',
+  'interest_personality_traits', 'interest_family', 'has_distance', 'has_traits', 'has_active', 'has_miles',
+  'has_sports', 'has_friendly', 'has_talkative', 'has_activities',
+  'has_outgoing', 'has_arts', 'has_outdoors', 'has_crafts',
+  'has_games', 'has_enjoy', 'has_min', 'has_mins',
+  'has_curious', 'has_parks', 'has_movies', 'has_personality'
+
+  
+)
+
+id_columns <- c(
+  'Match.ID.18Char', 'Little.ID', 'Big.ID', 'Big.Employer'
+)
+
+# Update the main lists
+id_columns <- c(id_columns)
+
+# 4. Convert date columns to numeric (days since a reference date)
+for (col in date_columns) {
+  if (col %in% names(df_clean)) {
+    df_clean[[paste0(col, "_days")]] <- as.numeric(as.Date(df_clean[[col]]) - as.Date("2000-01-01"))
+  }
+}
+
+# 5. Create a list of nominal (categorical) variables for Amelia
+nominal_vars <- categorical_candidates[categorical_candidates %in% names(df_clean)]
+
+# 6. Identify ID columns to exclude from imputation
+idvars <- id_columns[id_columns %in% names(df_clean)]
+
+# 7. Run Amelia imputation with the fixed specifications
+# Add 'incheck' parameter to disable the >10 category warning - SOMETHING IS WRONG - LEFT RUNNING FOR OVER AN HOUR NOT DONE
+amelia_output <- amelia(
+  df_clean,
+  m = 3,                   # Number of imputed datasets
+  idvars = idvars,         # ID columns to exclude
+  noms = nominal_vars,     # Nominal (categorical) variables
+  p2s = 2,                 # Suppress output
+  incheck = FALSE,         # Disable input checking (addresses >10 categories warning)
+  parallel = "multicore",  # Use parallel processing if available
+  ncpus = 8,                # Number of cores to use
+  maxit = 10
+)
+
+# 8. Get the first imputed dataset
+imputed_df <- amelia_output$imputations[[1]]
+
+# 9. Convert date columns back from numeric to date format
+for (col in date_columns) {
+  if (paste0(col, "_days") %in% names(imputed_df)) {
+    imputed_df[[col]] <- as.Date(imputed_df[[paste0(col, "_days")]], origin = "2000-01-01")
+    imputed_df[[paste0(col, "_days")]] <- NULL  # Remove the days column
+  }
+}
+
+# 10. Examine the imputed dataset
+summary(imputed_df)
+
+```
+
+
+TRY PROPORTIONAL HAZARDS MODEL HERE:
+
+
+RF approach:
 ```{r}
 library(tidymodels)
 library(dplyr)
@@ -810,7 +1096,6 @@ final_data <- bind_rows(
 print("Summary of imputed values:")
 summary(imputed_data[[target]])
 ```
-```{r}
-show_notes(.Last.tune.result)
-```
+
+is 'Big.Days.Acceptance.to.Match' missing at random? if not, we should not be imputing so much data.
 
