@@ -42,10 +42,8 @@ Unnecessary Columns:
 df$Match.ID.18Char <- NULL
 df$Little.ID <- NULL
 df$Big.ID <- NULL
-df$Big.Occupation <- NULL
 df$Big..Military <- NULL
 df$Big.Employer <- NULL
-df$Closure.Reason <- NULL
 df$Closure.Details <- NULL
 df$Big.Open.to.Cross.Gender.Match <- NULL
 df$Big.Contact..Interest.Finder...Sports <- NULL
@@ -67,6 +65,7 @@ df$Little.Contact..Interest.Finder...Career <- NULL
 df$Little.Contact..Interest.Finder...Personality <- NULL
 df$Little.Contact..Interest.Finder...Three.Wishes <- NULL
 df$Little.Other.Interests <- NULL
+df$Big.County[df$Big.County == ""] <- NA
 
 ```
 
@@ -108,6 +107,176 @@ if (length(high_missing_cols) == ncol(df)) {
 
 ```
 
+Data Conversion
+```{r}
+df$Match.Activation.Date <- as.Date(df$Match.Activation.Date, format="%Y-%m-%d")
+df$Big.Approved.Date <- as.Date(df$Match.Activation.Date, format="%Y-%m-%d") 
+df$Big.Acceptance.Date <- as.Date(df$Match.Activation.Date, format="%Y-%m-%d") 
+df$Match.Closure.Meeting.Date <- as.Date(df$Match.Activation.Date, format="%Y-%m-%d") 
+df$Big.Birthdate <- as.Date(df$Match.Activation.Date, format="%Y-%m-%d") 
+df$Little.Birthdate <- as.Date(df$Match.Activation.Date, format="%Y-%m-%d") 
+df$Little.Interview.Date <- as.Date(df$Match.Activation.Date, format="%Y-%m-%d") 
+df
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+ggplot(df, aes(x = Match.Activation.Date, y = Match.Length)) +
+  geom_point(alpha = 0.5, color = "blue") +  # Scatter plot with transparency
+  geom_smooth(method = "loess", color = "red", se = TRUE) +  # Trend line
+  labs(title = "Match Length Over Activation Date",
+       x = "Activation Date",
+       y = "Match Length") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+SORTING DF BY MATCH ACTIVATION DATE
+```{r}
+df <- df[order(df$Match.Activation.Date), ]
+df
+```
+
+
+Race alignments
+```{r}
+#Function to check if Big and Little ethnicities share any keywords
+check_ethnicity_match <- function(df) {
+  # Create a new column to store the matching result
+  df$Ethnicity_Match <- FALSE
+  
+  # Loop through each row
+  for (i in 1:nrow(df)) {
+    # Get the Big and Little race/ethnicity values
+    big_race <- df$Big.Race.Ethnicity[i]
+    little_race <- df$Little.Participant..Race.Ethnicity[i]
+    
+    # Skip if either value is NA
+    if (is.na(big_race) || is.na(little_race)) {
+      df$Ethnicity_Match[i] <- NA
+      next
+    }
+    
+    # Convert to character (in case they're factors)
+    big_race <- as.character(big_race)
+    little_race <- as.character(little_race)
+    
+    # Split strings by semicolons to handle multiple ethnicities
+    big_races <- unlist(strsplit(big_race, ";"))
+    little_races <- unlist(strsplit(little_race, ";"))
+    
+    # Clean up any leading/trailing spaces
+    big_races <- trimws(big_races)
+    little_races <- trimws(little_races)
+    
+    # Check if there's any match
+    match_found <- FALSE
+    for (b in big_races) {
+      for (l in little_races) {
+        # Extract keywords to compare (simplify the comparison)
+        keywords <- c("White", "Black", "Asian", "Hispanic", "Indian", "Alaska", 
+                     "Middle Eastern", "North African", "Other")
+        
+        # Check for each keyword
+        for (keyword in keywords) {
+          if (grepl(keyword, b, ignore.case = TRUE) && 
+              grepl(keyword, l, ignore.case = TRUE)) {
+            match_found <- TRUE
+            break
+          }
+        }
+        if (match_found) break
+      }
+      if (match_found) break
+    }
+    
+    # Assign the result
+    df$Ethnicity_Match[i] <- match_found
+  }
+  
+  return(df)
+}
+
+df <- check_ethnicity_match(df)
+df$Big.Race.Ethnicity <- NULL
+df$Little.Participant..Race.Ethnicity <- NULL
+```
+
+
+```{r}
+df$Stage <- factor(ifelse(df$Stage == "Closed", "Closed", "Active"))
+df[df == ""] <- NA
+df$Big.Languages[df$Big.Languages == ""] <- NA
+
+df$Big.Gender <- factor(df$Big.Gender, 
+                        levels = c("Female", "Male"),
+                        labels = c("Female", "Male"))
+
+df$Program <- as.factor(df$Program)
+df$Program.Type <- as.factor(df$Program.Type)
+
+str(df)
+```
+
+Looking at missing stuff
+Looking at missing stuff
+Looking at missing stuff
+```{r}
+vis_miss(df) # Big.Days.Acceptance.to.Match, Big.Days.Interview.to.Acceptance, Big.Days.Interview.to.Match, Big.Re.Enroll NOT RANDOMLY MISSING
+```
+```{r}
+missing_match_length <- df[is.na(df$Big.Days.Acceptance.to.Match), ]
+non_missing_match_length <- df[!is.na(df$Big.Days.Acceptance.to.Match), ]
+```
+
+REMOVE MORE COLUMNS:
+```{r}
+df$Big.Level.of.Education <- NULL
+df$Big.Languages <- NULL
+df$Big.Car.Access <- NULL
+df$Big.Contact..Preferred.Communication.Type <- NULL
+df$Big.Contact..Former.Big.Little <- NULL
+df$Big.Contact..Volunteer.Availability <- NULL
+df$Little.RTBM.Date.in.MF <- NULL
+df$Little.Contact..Language.s..Spoken <- NULL
+df$Little.Acceptance.Date <- NULL
+df$Little.Application.Received <- NULL
+df$Little.Moved.to.RTBM.in.MF <- NULL
+df$Little.Acceptance.Date <- NULL
+```
+
+
+```{r}
+summary(non_missing_match_length$Match.Length)
+summary(missing_match_length$Match.Length) 
+# Perform a t-test
+t_test_result <- t.test(non_missing_match_length$Match.Length, missing_match_length$Match.Length, 
+                        alternative = "two.sided", var.equal = FALSE)
+
+print(t_test_result) # missing has a difference
+```
+
+```{r}
+library(VIM)
+aggr(df) 
+```
+```{r}
+df$missing_data <- ifelse(is.na(df$Big.Days.Acceptance.to.Match), 1, 0)
+df$Stage <- ifelse(df$Stage == "Closed", 1, 0)
+```
+
+
+Check for multicollinearity now:
+Correlations:
+
+```{r}
+df
+```
+
+
 
 Changing Big.County:
 ```{r}
@@ -124,6 +293,7 @@ consolidate_counties <- function(county_data, min_frequency = 10) {
 
 df$County_Factor <- consolidate_counties(df$Big.County)
 summary(df$County_Factor)
+df$Big.County <- NULL
 ```
 
 Changing Big Occupation, Closure Reason:
@@ -187,12 +357,24 @@ df$Closure_Reason_Category <- categorize_text(df$Closure.Reason, closure_reason_
 df$Occupation_Category <- categorize_text(df$Big.Occupation, occupation_rules)
 summary(df$Closure_Reason_Category)
 summary(df$Occupation_Category)
+df$Closure.Reason <- NULL
+df$Big.Occupation <- NULL
 ```
 ```{r}
 # Find indices where Closure_Reason_Category is "Other"
 indices <- which(df$Occupation_Category[1:200] == "Other")
 matched_reasons <- df$Big.Occupation[indices]
 print(matched_reasons)
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(df, aes(x = Match.Length, fill = is.na(County_Factor))) +
+  geom_histogram(binwidth = 10, position = "dodge") +
+  scale_fill_manual(values = c("red", "blue"), labels = c("Non-Missing", "Missing")) +
+  labs(title = "Distribution of Match.Length for Missing vs Non-Missing Rows")
+
 ```
 
 Looking at Closure_Reason:
@@ -338,7 +520,52 @@ prop_plot <- df %>%
 
 print(prop_plot)
 ```
-Other is more because it includes blank values which are matches that are ongoing.
+
+MODEL 1:
+```{r}
+#Checking cox model on missing data
+cox_model <- coxph(Surv(Match.Length, Stage) ~ Big.Gender + Big.Age + Program.Type + Occupation_Category, data = df)
+summary(cox_model)
+```
+Interpretation:
+Big.Gender: (1-0.88) - Males have 12% lower hazard (stay in match longer) than females.
+
+```{r}
+library(survminer) # Kaplan Meier Curve
+ggsurvplot(survfit(cox_model), data = df, pval = TRUE)
+```
+```{r}
+# Fit survival models for gender and program type
+fit_gender <- coxph(Surv(Match.Length, Stage) ~ Big.Gender, data = df)
+ggsurvplot(survfit(fit_gender), data = df, pval = TRUE)
+```
+
+
+
+```{r}
+df$Rationale.for.Match <- NULL
+df$Big.Days.Interview.to.Acceptance<-NULL
+df$Big.Days.Acceptance.to.Match <- NULL
+dfBig.Days.Interview.to.Match <- NULL
+df$Big.Contact..Marital.Status <- NULL
+df$Little.RTBM.in.Matchforce <- NULL
+```
+
+```{r}
+vis_miss(df)
+df$Little.Gender <- NULL 
+```
+
+```{r, fig.width=20, fig.height=20}
+df$missing_data <-NULL
+cor_matrix <- cor(df %>% select_if(is.numeric), use = "pairwise.complete.obs")
+print(cor_matrix)
+corrplot(cor_matrix, method = "color", type = "upper", order = "hclust", 
+         tl.col = "black", tl.srt = 45, addCoef.col = "black")
+```
+
+
+
 
 
 
