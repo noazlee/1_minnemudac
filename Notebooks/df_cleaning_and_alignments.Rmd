@@ -237,16 +237,16 @@ for (category_name in names(interest_categories)) {
   column_name <- paste0("interest_", category_name)
   keywords <- interest_categories[[category_name]]
   
-  # Add column to the dataframe
-  df[[column_name]] <- FALSE
+  # df[[column_name]] <- FALSE
   
-  # Set to TRUE where the rationale contains at least one keyword from the category
-  df[!is.na(df$Rationale.for.Match), column_name] <- 
-    sapply(df$Rationale.for.Match[!is.na(df$Rationale.for.Match)], 
-           function(x) check_category_keywords(clean_text(x), keywords))
+  # df[!is.na(df$Rationale.for.Match), column_name] <- 
+  #   sapply(df$Rationale.for.Match[!is.na(df$Rationale.for.Match)], 
+  #          function(x) check_category_keywords(clean_text(x), keywords))
   
-  # Count occurrences
-  count <- sum(df[[column_name]], na.rm = TRUE)
+  # Instead, let's just calculate how many matches we would get, without modifying df
+  temp_results <- sapply(df$Rationale.for.Match[!is.na(df$Rationale.for.Match)], 
+          function(x) check_category_keywords(clean_text(x), keywords))
+  count <- sum(temp_results, na.rm = TRUE)
   percent <- count / nrow(df) * 100
   
   cat(sprintf("- %s: %d matches (%.1f%% of all records)\n", 
@@ -300,16 +300,16 @@ cat("\n")
 for (interest in common_interests[1:min(20, length(common_interests))]) {
   column_name <- paste0("has_", interest)
   
-  # Add column to the dataframe
-  df[[column_name]] <- FALSE
+  # df[[column_name]] <- FALSE
   
-  # Set to TRUE where the rationale contains this interest
-  df[!is.na(df$Rationale.for.Match), column_name] <- 
-    sapply(df$Rationale.for.Match[!is.na(df$Rationale.for.Match)], 
+  # df[!is.na(df$Rationale.for.Match), column_name] <- 
+  #   sapply(df$Rationale.for.Match[!is.na(df$Rationale.for.Match)], 
+  #          function(x) str_detect(clean_text(x), paste0("\\b", interest, "\\b")))
+  
+  # Instead, just calculate counts without modifying df
+  temp_results <- sapply(df$Rationale.for.Match[!is.na(df$Rationale.for.Match)], 
            function(x) str_detect(clean_text(x), paste0("\\b", interest, "\\b")))
-  
-  # Count occurrences
-  count <- sum(df[[column_name]], na.rm = TRUE)
+  count <- sum(temp_results, na.rm = TRUE)
   percent <- count / nrow(df) * 100
   
   cat(sprintf("- %s: %d matches (%.1f%% of records)\n", 
@@ -317,81 +317,81 @@ for (interest in common_interests[1:min(20, length(common_interests))]) {
 }
 
 # Analyze the relationship between interests and match length
-cat("\nAnalyzing relationship between interests and match length...\n")
-interest_columns <- df %>%
-  select(starts_with("interest_") | starts_with("has_")) %>%
-  names()
-
-interest_impact <- tibble()
-
-for (col in interest_columns) {
-  # Calculate average match length when interest is present vs. absent
-  avg_length_present <- df %>%
-    filter(.data[[col]] == TRUE) %>%
-    summarize(avg = mean(Match.Length, na.rm = TRUE)) %>%
-    pull(avg)
-  
-  avg_length_absent <- df %>%
-    filter(.data[[col]] == FALSE) %>%
-    summarize(avg = mean(Match.Length, na.rm = TRUE)) %>%
-    pull(avg)
-  
-  diff_percent <- ifelse(avg_length_absent > 0,
-                         ((avg_length_present - avg_length_absent) / avg_length_absent * 100),
-                         Inf)
-  
-  count_present <- sum(df[[col]], na.rm = TRUE)
-  percent_records <- count_present / nrow(df) * 100
-  
-  # Print details
-  cat(sprintf("- %s: Present: %.1f months, Absent: %.1f months (Difference: %+.1f%%)\n",
-             col, avg_length_present, avg_length_absent, diff_percent))
-  
-  # Add to summary dataframe
-  interest_impact <- interest_impact %>%
-    bind_rows(tibble(
-      interest = col,
-      avg_length_present = avg_length_present,
-      avg_length_absent = avg_length_absent,
-      diff_percent = diff_percent,
-      count = count_present,
-      percent_records = percent_records
-    ))
-}
-
-# Sort by impact on match length
-interest_impact <- interest_impact %>%
-  arrange(desc(diff_percent))
-
-# Display the top 10 interests that are most strongly associated with longer matches
-cat("\nTop 10 interests associated with LONGER matches:\n")
-interest_impact %>%
-  slice_head(n = 10) %>%
-  select(interest, avg_length_present, avg_length_absent, diff_percent, count, percent_records) %>%
-  print()
-
-# Display the bottom 10 interests that are most strongly associated with shorter matches
-cat("\nTop 10 interests associated with SHORTER matches:\n")
-interest_impact %>%
-  slice_tail(n = 10) %>%
-  select(interest, avg_length_present, avg_length_absent, diff_percent, count, percent_records) %>%
-  print()
-
-# Create a visualization of the impact of interests on match length
-interest_impact %>%
-  slice_max(abs(diff_percent), n = 15) %>%
-  mutate(interest = fct_reorder(interest, diff_percent)) %>%
-  ggplot(aes(x = interest, y = diff_percent, fill = diff_percent > 0)) +
-  geom_col() +
-  coord_flip() +
-  scale_fill_manual(values = c("firebrick", "steelblue"),
-                    name = "Associated with",
-                    labels = c("Shorter matches", "Longer matches")) +
-  labs(title = "Impact of Interests on Match Length",
-       subtitle = "Percentage difference in average match length when interest is present vs. absent",
-       x = "Interest Category",
-       y = "% Difference in Match Length") +
-  theme_minimal()
+# cat("\nAnalyzing relationship between interests and match length...\n")
+# interest_columns <- df %>%
+#   select(starts_with("interest_") | starts_with("has_")) %>%
+#   names()
+# 
+# interest_impact <- tibble()
+# 
+# for (col in interest_columns) {
+#   # Calculate average match length when interest is present vs. absent
+#   avg_length_present <- df %>%
+#     filter(.data[[col]] == TRUE) %>%
+#     summarize(avg = mean(Match.Length, na.rm = TRUE)) %>%
+#     pull(avg)
+#   
+#   avg_length_absent <- df %>%
+#     filter(.data[[col]] == FALSE) %>%
+#     summarize(avg = mean(Match.Length, na.rm = TRUE)) %>%
+#     pull(avg)
+#   
+#   diff_percent <- ifelse(avg_length_absent > 0,
+#                          ((avg_length_present - avg_length_absent) / avg_length_absent * 100),
+#                          Inf)
+#   
+#   count_present <- sum(df[[col]], na.rm = TRUE)
+#   percent_records <- count_present / nrow(df) * 100
+#   
+#   # Print details
+#   cat(sprintf("- %s: Present: %.1f months, Absent: %.1f months (Difference: %+.1f%%)\n",
+#              col, avg_length_present, avg_length_absent, diff_percent))
+#   
+#   # Add to summary dataframe
+#   interest_impact <- interest_impact %>%
+#     bind_rows(tibble(
+#       interest = col,
+#       avg_length_present = avg_length_present,
+#       avg_length_absent = avg_length_absent,
+#       diff_percent = diff_percent,
+#       count = count_present,
+#       percent_records = percent_records
+#     ))
+# }
+# 
+# # Sort by impact on match length
+# interest_impact <- interest_impact %>%
+#   arrange(desc(diff_percent))
+# 
+# # Display the top 10 interests that are most strongly associated with longer matches
+# cat("\nTop 10 interests associated with LONGER matches:\n")
+# interest_impact %>%
+#   slice_head(n = 10) %>%
+#   select(interest, avg_length_present, avg_length_absent, diff_percent, count, percent_records) %>%
+#   print()
+# 
+# # Display the bottom 10 interests that are most strongly associated with shorter matches
+# cat("\nTop 10 interests associated with SHORTER matches:\n")
+# interest_impact %>%
+#   slice_tail(n = 10) %>%
+#   select(interest, avg_length_present, avg_length_absent, diff_percent, count, percent_records) %>%
+#   print()
+# 
+# # Create a visualization of the impact of interests on match length
+# interest_impact %>%
+#   slice_max(abs(diff_percent), n = 15) %>%
+#   mutate(interest = fct_reorder(interest, diff_percent)) %>%
+#   ggplot(aes(x = interest, y = diff_percent, fill = diff_percent > 0)) +
+#   geom_col() +
+#   coord_flip() +
+#   scale_fill_manual(values = c("firebrick", "steelblue"),
+#                     name = "Associated with",
+#                     labels = c("Shorter matches", "Longer matches")) +
+#   labs(title = "Impact of Interests on Match Length",
+#        subtitle = "Percentage difference in average match length when interest is present vs. absent",
+#        x = "Interest Category",
+#        y = "% Difference in Match Length") +
+#   theme_minimal()
 ```
 
 Data Cleaning - Changing variable type:
@@ -753,6 +753,7 @@ if (!is.null(big_days_missingness) && nrow(big_days_missingness) > 0) {
 ```
 Heavily correlated with date - maybe date is a big feature in predicting Match Length?
 
+
 ```{r}
 library(ggplot2)
 library(dplyr)
@@ -851,6 +852,154 @@ df$Occupation_Category <- categorize_text(df$Big.Occupation, occupation_rules)
 df$Languages_Category <- categorize_text(df$Big.Languages, languages_rules)
 ```
 
+Looking at Closure_Reason:
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(forcats)
+
+# Assuming 'df' is your dataframe with the data
+# Let's first look at summary statistics for Match.Length by Closure.Reason
+match_summary <- df %>%
+  group_by(Closure_Reason_Category) %>%
+  summarise(
+    count = n(),
+    mean_length = mean(Match.Length, na.rm = TRUE),
+    median_length = median(Match.Length, na.rm = TRUE),
+    sd_length = sd(Match.Length, na.rm = TRUE),
+    min_length = min(Match.Length, na.rm = TRUE),
+    max_length = max(Match.Length, na.rm = TRUE)
+  ) %>%
+  arrange(desc(count))
+
+# Print summary
+print(match_summary)
+
+# 1. Boxplot of Match.Length by Closure_Reason_Category
+closure_boxplot <- ggplot(df, aes(x = reorder(Closure_Reason_Category, Match.Length, FUN = median), 
+                                  y = Match.Length, 
+                                  fill = Closure_Reason_Category)) +
+  geom_boxplot() +
+  coord_flip() +
+  labs(title = "Distribution of Match Length by Closure Reason",
+       x = "Closure Reason",
+       y = "Match Length") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+print(closure_boxplot)
+
+# 2. Barplot for average Match.Length by Closure_Reason_Category
+avg_match_length <- df %>%
+  group_by(Closure_Reason_Category) %>%
+  summarise(avg_length = mean(Match.Length, na.rm = TRUE),
+            count = n()) %>%
+  arrange(desc(avg_length))
+
+avg_length_plot <- ggplot(avg_match_length, aes(x = reorder(Closure_Reason_Category, avg_length), 
+                                               y = avg_length, 
+                                               fill = count)) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_viridis_c(name = "Count") +
+  labs(title = "Average Match Length by Closure Reason",
+       x = "Closure Reason",
+       y = "Average Match Length") +
+  theme_minimal()
+
+print(avg_length_plot)
+
+# 3. Density plot for Match.Length by top closure reasons
+# Select top 5 most common closure reasons for clarity
+top_reasons <- match_summary %>%
+  top_n(5, count) %>%
+  pull(Closure_Reason_Category)
+
+density_plot <- df %>%
+  filter(Closure_Reason_Category %in% top_reasons) %>%
+  ggplot(aes(x = Match.Length, fill = Closure_Reason_Category)) +
+  geom_density(alpha = 0.7) +
+  labs(title = "Density Distribution of Match Length by Top 5 Closure Reasons",
+       x = "Match Length",
+       y = "Density") +
+  theme_minimal()
+
+print(density_plot)
+
+# 4. Histogram of Match.Length faceted by Closure_Reason_Category
+histogram_plot <- df %>%
+  filter(Closure_Reason_Category %in% top_reasons) %>%
+  ggplot(aes(x = Match.Length, fill = Closure_Reason_Category)) +
+  geom_histogram(binwidth = 30, alpha = 0.8) +
+  facet_wrap(~Closure_Reason_Category, scales = "free_y") +
+  labs(title = "Distribution of Match Length by Top Closure Reasons",
+       x = "Match Length (days)",
+       y = "Count") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+print(histogram_plot)
+
+# 5. Create a violin plot to show distribution shapes
+violin_plot <- df %>%
+  filter(Closure_Reason_Category %in% top_reasons) %>%
+  ggplot(aes(x = Closure_Reason_Category, y = Match.Length, fill = Closure_Reason_Category)) +
+  geom_violin(trim = FALSE) +
+  geom_boxplot(width = 0.1, fill = "white", alpha = 0.5) +
+  coord_flip() +
+  labs(title = "Violin Plot of Match Length by Top Closure Reasons",
+       x = "Closure Reason",
+       y = "Match Length") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+print(violin_plot)
+
+# 6. Scatter plot with jittering to show individual data points
+jitter_plot <- df %>%
+  filter(Closure_Reason_Category %in% top_reasons) %>%
+  ggplot(aes(x = Closure_Reason_Category, y = Match.Length, color = Closure_Reason_Category)) +
+  geom_jitter(alpha = 0.5, width = 0.3) +
+  stat_summary(fun = mean, geom = "point", shape = 18, size = 4, color = "black") +
+  coord_flip() +
+  labs(title = "Individual Match Lengths by Closure Reason (with means)",
+       x = "Closure Reason",
+       y = "Match Length") +
+  theme_minimal()
+
+print(jitter_plot)
+
+# 7. Cumulative distribution function plot
+cdf_plot <- df %>%
+  filter(Closure_Reason_Category %in% top_reasons) %>%
+  ggplot(aes(x = Match.Length, color = Closure_Reason_Category)) +
+  stat_ecdf() +
+  labs(title = "Cumulative Distribution of Match Length by Closure Reason",
+       x = "Match Length",
+       y = "Cumulative Proportion") +
+  theme_minimal()
+
+print(cdf_plot)
+
+# 8. Proportion of closure reasons
+prop_plot <- df %>%
+  count(Closure_Reason_Category) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(x = "", y = prop, fill = Closure_Reason_Category)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  labs(title = "Proportion of Closure Reasons") +
+  theme_void()
+
+print(prop_plot)
+```
+```{r}
+df$Closure_Reason_Category <- NULL
+```
+
 ```{r}
 # Closure.Reason basically covers Closure.Details - remove it
 df$Closure.Details <- NULL
@@ -858,244 +1007,696 @@ df$Closure.Reason <- NULL
 df$Rationale.for.Match <- NULL
 df$Big.Occupation <- NULL
 df$Big.Languages <- NULL
+df$Big.Home.Census.Block.Group <- NULL
+df$Little.Home.Census.Block.Group <- NULL
+df$Program <- NULL
+df$Program.Type <- NULL
 df
 ```
 
+Add race alignments
+```{r}
+# Function to check if Big and Little ethnicities share any keywords
+check_ethnicity_match <- function(df) {
+  # Create a new column to store the matching result
+  df$Ethnicity_Match <- FALSE
+  
+  # Loop through each row
+  for (i in 1:nrow(df)) {
+    # Get the Big and Little race/ethnicity values
+    big_race <- df$Big.Race.Ethnicity[i]
+    little_race <- df$Little.Participant..Race.Ethnicity[i]
+    
+    # Skip if either value is NA
+    if (is.na(big_race) || is.na(little_race)) {
+      df$Ethnicity_Match[i] <- NA
+      next
+    }
+    
+    # Convert to character (in case they're factors)
+    big_race <- as.character(big_race)
+    little_race <- as.character(little_race)
+    
+    # Split strings by semicolons to handle multiple ethnicities
+    big_races <- unlist(strsplit(big_race, ";"))
+    little_races <- unlist(strsplit(little_race, ";"))
+    
+    # Clean up any leading/trailing spaces
+    big_races <- trimws(big_races)
+    little_races <- trimws(little_races)
+    
+    # Check if there's any match
+    match_found <- FALSE
+    for (b in big_races) {
+      for (l in little_races) {
+        # Extract keywords to compare (simplify the comparison)
+        keywords <- c("White", "Black", "Asian", "Hispanic", "Indian", "Alaska", 
+                     "Middle Eastern", "North African", "Other")
+        
+        # Check for each keyword
+        for (keyword in keywords) {
+          if (grepl(keyword, b, ignore.case = TRUE) && 
+              grepl(keyword, l, ignore.case = TRUE)) {
+            match_found <- TRUE
+            break
+          }
+        }
+        if (match_found) break
+      }
+      if (match_found) break
+    }
+    
+    # Assign the result
+    df$Ethnicity_Match[i] <- match_found
+  }
+  
+  return(df)
+}
+
+df <- check_ethnicity_match(df)
+df$Big.Race.Ethnicity <- NULL
+df$Little.Participant..Race.Ethnicity <- NULL
+```
+
+
 
 ```{r}
-library(Amelia)
+df$Big.Employer <- NULL
+```
+
+
+Col list:
+Match.ID.18Char, Stage, Little.ID, Big.ID, Big.County, Big.Age, Big.Approved.Date, Big.Gender, Big.Birthdate, Program, Program.Type, Match.Activation.Date, Little.Gender, Little.Birthdate, Little.Mailing.Address.Census.Block.Group, Big.Home.Census.Block.Group, Match.Length, interest_sports, interest_arts, interest_outdoors, interest_academics, interest_technology, interest_social, interest_food, interest_cultural, interest_personality_traits, interest_family, has_distance, has_traits, has_active, has_miles, has_sports, has_friendly, has_talkative, has_activities, has_outgoing, has_arts, has_outdoors, has_crafts, has_games, has_enjoy, has_min, has_mins, has_curious, has_parks, has_movies, has_personality, Occupation_Category, Languages_Category, Employer.Category, Ethnicity_Match
+
+```{r}
+# Load necessary libraries
+library(tidyverse)
 library(lubridate)
+library(mice)
 
-# 1. Remove Interest.Finder columns
-interest_finder_cols <- grep("Interest.Finder", names(df), value = TRUE)
-print(paste("Removing", length(interest_finder_cols), "Interest.Finder columns"))
-df_clean <- df[, !names(df) %in% interest_finder_cols]
+# Define column types as specified
+id_columns <- c("Match.ID.18Char", "Little.ID", "Big.ID")
 
-# 2. Define column types
 date_columns <- c(
-  'Big.Approved.Date', 'Big.Birthdate', 'Match.Activation.Date',
-  'Little.Birthdate'
+  'Big.Approved.Date', 'Big.Birthdate', 'Match.Activation.Date', 'Little.Birthdate'
 )
 
 numeric_columns <- c(
   'Big.Age', 'Match.Length', 
-  'Little.Mailing.Address.Census.Block.Group',
-  'Big.Home.Census.Block.Group'
+  'Little.Mailing.Address.Census.Block.Group', 'Big.Home.Census.Block.Group'
 )
 
 categorical_columns <- c(
-  'Big.Race.Ethnicity', 'Big.Gender', 'Little.Gender',
-  'Little.Participant..Race.Ethnicity',
-  'Big.Languages',
-  'Stage', 'Program', 'Program.Type', 'Big.County',
-  'interest_sports', 'interest_arts', 'interest_outdoors', 'interest_academics',
-  'interest_technology', 'interest_social', 'interest_food', 'interest_cultural',
-  'interest_personality_traits', 'interest_family', 'has_distance', 'has_traits', 'has_active', 'has_miles',
-  'has_sports', 'has_friendly', 'has_talkative', 'has_activities',
-  'has_outgoing', 'has_arts', 'has_outdoors', 'has_crafts',
-  'has_games', 'has_enjoy', 'has_min', 'has_mins',
-  'has_curious', 'has_parks', 'has_movies', 'has_personality'
+  'Stage', 'Big.Gender', 'Big.County', 'Little.Gender', 'Occupation_Category', 
+  'Languages_Category', 'Employer.Category', 'Ethnicity_Match'
+)
 
+# Verify all columns are accounted for
+all_defined_columns <- c(id_columns, date_columns, numeric_columns, categorical_columns)
+unaccounted_columns <- setdiff(names(df), all_defined_columns)
+
+if (length(unaccounted_columns) > 0) {
+  cat("Warning: The following columns are not categorized:", 
+      paste(unaccounted_columns, collapse=", "), "\n")
+}
+
+
+# 1. Simple Imputation Methods
+df_simple <- df
+
+# For date columns - impute with median date
+for (col in date_columns) {
+  if (col %in% names(df) && sum(is.na(df[[col]])) > 0) {
+    # Calculate median date excluding NAs
+    median_date <- median(df[[col]], na.rm = TRUE)
+    
+    # If all values are NA, set a default date
+    if (is.na(median_date)) {
+      median_date <- as.Date("2017-01-01")  # A reasonable default based on your data
+    }
+    
+    # Impute NAs with median
+    df_simple[[col]][is.na(df_simple[[col]])] <- median_date
+  }
+}
+
+# For numeric columns - impute with mean or median
+for (col in numeric_columns) {
+  if (col %in% names(df) && sum(is.na(df[[col]])) > 0) {
+    # Special handling for census block groups (use mode instead of mean)
+    if (grepl("Census.Block.Group", col)) {
+      # For census block groups, find the most common value
+      mode_value <- as.numeric(names(sort(table(df[[col]]), decreasing = TRUE)[1]))
+      df_simple[[col]][is.na(df_simple[[col]])] <- mode_value
+    } else {
+      # For other numeric values, use the mean
+      mean_value <- mean(df[[col]], na.rm = TRUE)
+      df_simple[[col]][is.na(df_simple[[col]])] <- mean_value
+    }
+  }
+}
+
+# For categorical columns - impute with mode (most frequent value) - COME BACK TO THIS LATER WHEN AMANDA RESPONDS
+for (col in categorical_columns) {
+  if (col %in% names(df) && sum(is.na(df[[col]])) > 0) {
+    # Special handling for Closure_Reason_Category - only impute for closed matches
+    if (col == "Closure_Reason_Category") {
+      # For active matches, keep NA
+      closed_indices <- which(df$Stage == "Closed" & is.na(df[[col]]))
+      
+      if (length(closed_indices) > 0) {
+        # For closed matches missing reason, use most common reason
+        mode_value <- names(sort(table(df[[col]]), decreasing = TRUE)[1])
+        df_simple[[col]][closed_indices] <- mode_value
+      }
+    } else {
+      # For other categoricals, use the mode
+      mode_value <- names(sort(table(df[[col]]), decreasing = TRUE)[1])
+      df_simple[[col]][is.na(df_simple[[col]])] <- mode_value
+    }
+  }
+}
+
+
+# ========= EVALUATE IMPUTATION METHODS =========
+
+# Function to compare original values with imputed values for non-missing data
+# (This is a simulation to estimate imputation accuracy)
+evaluate_imputation <- function(original_df, imputed_df, method_name) {
+  cat("\nEvaluating", method_name, "imputation accuracy:\n")
   
-)
-
-id_columns <- c(
-  'Match.ID.18Char', 'Little.ID', 'Big.ID', 'Big.Employer'
-)
-
-# Update the main lists
-id_columns <- c(id_columns)
-
-# 4. Convert date columns to numeric (days since a reference date)
-for (col in date_columns) {
-  if (col %in% names(df_clean)) {
-    df_clean[[paste0(col, "_days")]] <- as.numeric(as.Date(df_clean[[col]]) - as.Date("2000-01-01"))
+  # For numeric columns
+  numeric_eval <- list()
+  for (col in intersect(numeric_columns, names(original_df))) {
+    if (sum(!is.na(original_df[[col]])) > 10) {  # Only evaluate columns with enough data
+      # Randomly select 10% of non-missing values
+      non_missing_indices <- which(!is.na(original_df[[col]]))
+      if (length(non_missing_indices) > 5) {
+        test_indices <- sample(non_missing_indices, ceiling(length(non_missing_indices) * 0.1))
+        
+        # Save original values
+        test_values <- original_df[[col]][test_indices]
+        
+        # Create a copy with these values set to NA
+        test_df <- original_df
+        test_df[[col]][test_indices] <- NA
+        
+        # Apply the imputation method (simplified for this example)
+        if (method_name == "Simple") {
+          imputed_values <- rep(mean(test_df[[col]], na.rm = TRUE), length(test_indices))
+        } else {
+          imputed_values <- imputed_df[[col]][test_indices]
+        }
+        
+        # Calculate error metrics
+        mae <- mean(abs(test_values - imputed_values), na.rm = TRUE)
+        rmse <- sqrt(mean((test_values - imputed_values)^2, na.rm = TRUE))
+        
+        numeric_eval[[col]] <- c(MAE = mae, RMSE = rmse)
+      }
+    }
+  }
+  
+  # Print numeric evaluation results
+  if (length(numeric_eval) > 0) {
+    cat("Numeric column imputation errors:\n")
+    numeric_results <- do.call(rbind, numeric_eval)
+    print(numeric_results)
+  }
+  
+  # For categorical columns (calculate accuracy)
+  cat_eval <- list()
+  for (col in intersect(categorical_columns, names(original_df))) {
+    if (sum(!is.na(original_df[[col]])) > 10) {  # Only evaluate columns with enough data
+      # Randomly select 10% of non-missing values
+      non_missing_indices <- which(!is.na(original_df[[col]]))
+      if (length(non_missing_indices) > 5) {
+        test_indices <- sample(non_missing_indices, ceiling(length(non_missing_indices) * 0.1))
+        
+        # Save original values
+        test_values <- original_df[[col]][test_indices]
+        
+        # Apply the imputation method (simplified)
+        imputed_values <- imputed_df[[col]][test_indices]
+        
+        # Calculate accuracy
+        accuracy <- mean(test_values == imputed_values, na.rm = TRUE)
+        cat_eval[[col]] <- accuracy
+      }
+    }
+  }
+  
+  # Print categorical evaluation results
+  if (length(cat_eval) > 0) {
+    cat("\nCategorical column imputation accuracy:\n")
+    cat_results <- do.call(rbind, as.data.frame(cat_eval))
+    colnames(cat_results) <- "Accuracy"
+    print(cat_results)
   }
 }
 
-# 5. Create a list of nominal (categorical) variables for Amelia
-nominal_vars <- categorical_candidates[categorical_candidates %in% names(df_clean)]
+# Evaluate each imputation method
+evaluate_imputation(df, df_simple, "Simple")
 
-# 6. Identify ID columns to exclude from imputation
-idvars <- id_columns[id_columns %in% names(df_clean)]
 
-# 7. Run Amelia imputation with the fixed specifications
-# Add 'incheck' parameter to disable the >10 category warning - SOMETHING IS WRONG - LEFT RUNNING FOR OVER AN HOUR NOT DONE
-amelia_output <- amelia(
-  df_clean,
-  m = 3,                   # Number of imputed datasets
-  idvars = idvars,         # ID columns to exclude
-  noms = nominal_vars,     # Nominal (categorical) variables
-  p2s = 2,                 # Suppress output
-  incheck = FALSE,         # Disable input checking (addresses >10 categories warning)
-  parallel = "multicore",  # Use parallel processing if available
-  ncpus = 8,                # Number of cores to use
-  maxit = 10
-)
+# Final summary
+cat("\n==== IMPUTATION SUMMARY ====\n")
+cat("Original data had", sum(colSums(is.na(df)) > 0), "columns with missing values\n")
+cat("Simple imputation left", sum(colSums(is.na(df_simple)) > 0), "columns with missing values\n")
 
-# 8. Get the first imputed dataset
-imputed_df <- amelia_output$imputations[[1]]
 
-# 9. Convert date columns back from numeric to date format
-for (col in date_columns) {
-  if (paste0(col, "_days") %in% names(imputed_df)) {
-    imputed_df[[col]] <- as.Date(imputed_df[[paste0(col, "_days")]], origin = "2000-01-01")
-    imputed_df[[paste0(col, "_days")]] <- NULL  # Remove the days column
-  }
-}
-
-# 10. Examine the imputed dataset
-summary(imputed_df)
-
+df
+df_simple
 ```
-
 
 TRY PROPORTIONAL HAZARDS MODEL HERE:
+Check for multicollinearity: # TO BE CONTINUED'
 
-
-RF approach:
 ```{r}
-library(tidymodels)
-library(dplyr)
-library(ranger)
+library(gmodels)
 
-set.seed(8080)
+# Function to perform Fisher's exact tests and filter results by significance
+test_categorical_associations <- function(df, categorical_columns, p_threshold = 0.01) {
+  # Create empty vectors to store results
+  var1_vec <- c()
+  var2_vec <- c()
+  p_values <- c()
+  
+  # For each categorical predictor
+  for(cat_var in categorical_columns) {
+    if(cat_var %in% names(df)) {
+      # Check its relationship with all other categorical variables
+      for(other_var in categorical_columns) {
+        if(other_var != cat_var && other_var %in% names(df)) {
+          # Skip if either variable has only one level
+          if(length(unique(df[[cat_var]])) <= 1 || length(unique(df[[other_var]])) <= 1) {
+            next
+          }
+          
+          # Perform Fisher's exact test
+          tryCatch({
+            test_result <- fisher.test(df[[cat_var]], df[[other_var]], 
+                                      simulate.p.value = TRUE)
+            
+            # Store results
+            var1_vec <- c(var1_vec, cat_var)
+            var2_vec <- c(var2_vec, other_var)
+            p_values <- c(p_values, test_result$p.value)
+          }, error = function(e) {
+            message("Error testing ", cat_var, " with ", other_var, ": ", e$message)
+          })
+        }
+      }
+    }
+  }
+  
+  # Create data frame of results
+  results <- data.frame(
+    var1 = var1_vec,
+    var2 = var2_vec,
+    p_value = p_values
+  )
+  
+  # Filter significant associations
+  significant <- results[results$p_value < p_threshold, ]
+  
+  # Sort by p-value
+  significant <- significant[order(significant$p_value), ]
+  
+  # Return both the full results and filtered results
+  return(list(
+    all_results = results,
+    significant = significant
+  ))
+}
 
-# Clean and prepare data
-df_cleaned <- df %>%
-  rename_with(~ gsub("[ /-]", ".", .x))
-
-features <- c(
-  'Big.Age',
-  'Big.Occupation', 
-  'Program', 
-  'Match.Length',  
-  'Match.Activation.Date', 
-  'Big.Gender',
-  'Big.Race.Ethnicity',
-  'Big.County',
-  'Program.Type',
-  'Big.Enrollment..Record.Type',
-  'Big.Birthdate',
-  'Big.Approved.Date',
-  'Big.Re.Enroll'
-)
-target <- 'Big.Days.Acceptance.to.Match'
-
-# Remove rows where target is missing for training
-df_train_data <- df_cleaned %>%
-  filter(!is.na(!!sym(target)))
-
-# Create test data from rows with missing target
-df_test_data <- df_cleaned %>%
-  filter(is.na(!!sym(target)))
-
-# Create a simple data split
-data_split <- initial_split(df_train_data, prop = 0.8)
-train_data <- training(data_split)
-val_data <- testing(data_split)
-
-# Create the recipe with proper handling of date columns
-rf_recipe <- 
-  recipe(formula = as.formula(paste(target, "~", paste(features, collapse = "+"))), 
-         data = train_data) %>%
-  # Convert dates to numeric first
-  step_mutate(
-    Match.Activation.Date = as.numeric(as.Date(Match.Activation.Date) - as.Date("1940-01-01")),
-    Big.Birthdate = as.numeric(as.Date(Big.Birthdate) - as.Date("1940-01-01")),
-    Big.Approved.Date = as.numeric(as.Date(Big.Approved.Date) - as.Date("1940-01-01"))
-  ) %>%
-  # Handle missing values
-  step_impute_mode(all_nominal_predictors()) %>%
-  step_impute_median(all_numeric_predictors()) %>%
-  step_impute_knn(all_numeric_predictors()) %>%
-  # Convert categorical variables to factors
-  step_string2factor(all_nominal_predictors()) %>%
-  step_other(all_nominal_predictors(), threshold = 0.01) %>%
-  step_zv(all_predictors())
-
-# Test if the recipe preprocessing works
-prepped_recipe <- prep(rf_recipe, training = train_data, verbose = TRUE)
-processed_data <- bake(prepped_recipe, new_data = NULL)
-print("Recipe preprocessing successful!")
-
-# Define the random forest model specification
-rf_spec <- 
-  rand_forest(
-    trees = tune(),
-    mtry = tune(),
-    min_n = tune()
-  ) %>%
-  set_mode("regression") %>%
-  set_engine("ranger", importance = "impurity")
-
-# Create the workflow
-ranger_workflow <- 
-  workflow() %>%
-  add_recipe(rf_recipe) %>%
-  add_model(rf_spec)
-
-# Create a simpler tuning grid
-rf_grid <- expand_grid(
-  trees = c(100, 200),
-  mtry = c(3, 5),
-  min_n = c(5, 10)
-)
-
-# Set up cross-validation
-folds <- vfold_cv(train_data, v = 5)
-
-# Perform grid search with cross-validation
-tune_results <- tune_grid(
-  ranger_workflow,
-  resamples = folds,
-  grid = rf_grid,
-  metrics = metric_set(rmse, mae, rsq)
-)
-
-# Select the best model based on MAE to match Python
-best_model <- select_best(tune_results, metric = "mae")
-
-# Finalize the workflow with the best hyperparameters
-final_workflow <- finalize_workflow(ranger_workflow, best_model)
-
-# Fit the final model
-final_fit <- fit(final_workflow, data = df_train_data)
-
-# Predict on the validation set
-validation_predictions <- predict(final_fit, new_data = val_data)
-
-# Add predictions to the validation set
-validation_results <- val_data %>%
-  bind_cols(validation_predictions) %>%
-  rename(predicted = .pred)
-
-# Evaluate model performance
-validation_metrics <- validation_results %>%
-  metrics(truth = !!sym(target), estimate = predicted)
-
-# Print validation metrics
-print(validation_metrics)
-
-# Predict missing values in the test set
-test_predictions <- predict(final_fit, new_data = df_test_data)
-
-# Replace missing values with predicted values
-imputed_data <- df_test_data %>%
-  bind_cols(test_predictions) %>%
-  mutate(!!sym(target) := .pred) %>%
-  select(-.pred)
-
-# Combine the original data with non-missing target and the imputed data
-final_data <- bind_rows(
-  df_train_data,
-  imputed_data
-)
-
-# Print summary statistics
-print("Summary of imputed values:")
-summary(imputed_data[[target]])
+results <- test_categorical_associations(df_simple, categorical_columns, 0.01)
+print(results$significant)
+```
+might just have to restart :(
+```{r}
+df_simple
 ```
 
-is 'Big.Days.Acceptance.to.Match' missing at random? if not, we should not be imputing so much data.
+all the has / interest vars are highly multicollinear - remove for now?
+
+```{r}
+# Load required packages
+library(car)
+
+# Creating a formula for the model
+# We need a dependent variable - for VIF calculation, it doesn't matter which one we use
+# We'll use the first categorical column as the dependent variable for the formula
+dependent_var <- 'Match.Length'
+independent_vars <- c(categorical_columns[-1], numeric_columns)
+
+# Filter to only include columns that exist in the dataframe
+independent_vars <- independent_vars[independent_vars %in% names(df_simple)]
+
+# Create formula string
+formula_str <- paste(dependent_var, "~", paste(independent_vars, collapse = " + "))
+formula_obj <- as.formula(formula_str)
+
+# Create the model
+model <- try(lm(formula_obj, data = df_simple, na.action = na.omit))
+
+# Check for multicollinearity using VIF (Variance Inflation Factor)
+if (!inherits(model, "try-error")) {
+  # Calculate VIF
+  vif_result <- try(vif(model))
+  
+  if (!inherits(vif_result, "try-error")) {
+    print("VIF Results (values > 5 indicate potential multicollinearity, > 10 indicate severe multicollinearity):")
+    print(vif_result)
+    
+    # Identify high VIF values
+    high_vif <- vif_result[vif_result > 5]
+    if (length(high_vif) > 0) {
+      print("Variables with high multicollinearity (VIF > 5):")
+      print(high_vif)
+    } else {
+      print("No severe multicollinearity detected (all VIF values < 5).")
+    }
+  } else {
+    # If VIF calculation fails, try a correlation matrix approach
+    print("VIF calculation failed. Using correlation matrix instead.")
+    
+    # Select only numeric columns for correlation matrix
+    numeric_data <- df_simple[, sapply(df_simple, is.numeric)]
+    
+    if (ncol(numeric_data) > 1) {
+      cor_matrix <- cor(numeric_data, use = "pairwise.complete.obs")
+      print("Correlation Matrix:")
+      print(cor_matrix)
+      
+      # Find high correlations
+      high_cors <- which(abs(cor_matrix) > 0.7 & abs(cor_matrix) < 1, arr.ind = TRUE)
+      if (nrow(high_cors) > 0) {
+        print("Variable pairs with high correlation (|r| > 0.7):")
+        for (i in 1:nrow(high_cors)) {
+          if (high_cors[i, 1] < high_cors[i, 2]) {  # Avoid printing both (A,B) and (B,A)
+            var1 <- rownames(cor_matrix)[high_cors[i, 1]]
+            var2 <- colnames(cor_matrix)[high_cors[i, 2]]
+            cor_val <- cor_matrix[high_cors[i, 1], high_cors[i, 2]]
+            print(paste(var1, "and", var2, ":", round(cor_val, 3)))
+          }
+        }
+      } else {
+        print("No high correlations (|r| > 0.7) found between numeric variables.")
+      }
+    } else {
+      print("Not enough numeric columns for correlation analysis.")
+    }
+  }
+} else {
+  print("Model creation failed. This could be due to perfect multicollinearity or other issues.")
+  
+  # Try pairwise correlations instead
+  print("Using correlation matrix for numeric variables instead.")
+  numeric_data <- df_simple[, sapply(df_simple, is.numeric)]
+  
+  if (ncol(numeric_data) > 1) {
+    cor_matrix <- cor(numeric_data, use = "pairwise.complete.obs")
+    print("Correlation Matrix:")
+    print(cor_matrix)
+    
+    # Find high correlations
+    high_cors <- which(abs(cor_matrix) > 0.7 & abs(cor_matrix) < 1, arr.ind = TRUE)
+    if (nrow(high_cors) > 0) {
+      print("Variable pairs with high correlation (|r| > 0.7):")
+      for (i in 1:nrow(high_cors)) {
+        if (high_cors[i, 1] < high_cors[i, 2]) {  # Avoid printing both (A,B) and (B,A)
+          var1 <- rownames(cor_matrix)[high_cors[i, 1]]
+          var2 <- colnames(cor_matrix)[high_cors[i, 2]]
+          cor_val <- cor_matrix[high_cors[i, 1], high_cors[i, 2]]
+          print(paste(var1, "and", var2, ":", round(cor_val, 3)))
+        }
+      }
+    } else {
+      print("No high correlations (|r| > 0.7) found between numeric variables.")
+    }
+  } else {
+    print("Not enough numeric columns for correlation analysis.")
+  }
+}
+```
+
+```{r}
+df_simple
+```
+
+
+```{r}
+library(survival)
+library(dplyr)
+library(ggplot2)
+library(survminer)
+library(Hmisc)
+library(pec) 
+library(timeROC) 
+
+df_model <- df_simple %>%
+  mutate(across(all_of(date_columns), ~as.Date(.)))
+
+# 2. Calculate survival time and event indicator
+# Create time variable (in days) and event indicator (1=closed, 0=ongoing/censored)
+df_model <- df_model %>%
+  mutate(
+    # Calculate match duration (time variable)
+    match_duration = as.numeric(difftime(
+      # If match is closed (Stage=="Closed"), use current date as end date for calculation
+      # Otherwise (Stage=="Open"), also use current date (these will be censored observations)
+      Sys.Date(),
+      Match.Activation.Date, 
+      units = "days"
+    )),
+    event = ifelse(Stage == "Closed", 1, 0)
+  )
+
+# 3. Build the Cox Proportional Hazards model
+# Start with a simpler model with key variables
+cox_model <- coxph(
+  Surv(match_duration, event) ~ 
+    Big.Age + 
+    Big.Gender +
+    Occupation_Category +
+    Languages_Category +
+    Ethnicity_Match,
+  data = df_model
+)
+
+# Display model summary
+summary(cox_model)
+
+# 4. Check proportional hazards assumption
+ph_test <- cox.zph(cox_model)
+print(ph_test)
+plot(ph_test)
+
+# 5. Create Kaplan-Meier survival curves for a key categorical variable (e.g., Program.Type)
+km_fit <- survfit(Surv(match_duration, event) ~ Program.Type, data = df_model)
+print(km_fit)
+
+# Plot survival curves
+ggsurvplot(
+  km_fit,
+  data = df_model,
+  risk.table = TRUE,
+  pval = TRUE,
+  conf.int = TRUE,
+  xlim = c(0, 1000),  # Adjust as needed
+  xlab = "Days",
+  ylab = "Match Survival Probability",
+  title = "Match Survival by Program Type",
+  ggtheme = theme_minimal()
+)
+
+# 6. Visualize hazard ratios
+ggforest(
+  cox_model,
+  data = df_model,
+  main = "Hazard Ratios from Cox Proportional Hazards Model"
+)
+
+# 7. For a comprehensive model with all variables
+# Note: This might be too complex and lead to overfitting
+# Consider variable selection methods if needed
+
+# Example for a more comprehensive model
+# comprehensive_model <- coxph(
+#   Surv(match_duration, event) ~ .,
+#   data = df_model %>% select(match_duration, event, all_of(numeric_columns), all_of(categorical_columns))
+# )
+
+# 9. Model validation
+# Split data into training and testing sets for validation
+set.seed(8080)
+train_indices <- sample(1:nrow(df_model), 0.8 * nrow(df_model))
+train_data <- df_model[train_indices, ]
+test_data <- df_model[-train_indices, ]
+
+# Train model on training data
+train_model <- coxph(
+  Surv(match_duration, event) ~ 
+    Big.Age + 
+    Big.Gender + 
+    Occupation_Category +
+    Languages_Category +
+    Ethnicity_Match,
+  data = train_data,
+  x = TRUE  # This is the key addition
+)
+
+# Predict on test data
+pred <- predict(train_model, newdata = test_data, type = "risk")
+
+# Calculate concordance index using Hmisc package
+concordance <- rcorr.cens(-pred, Surv(test_data$match_duration, test_data$event))
+print(paste("Concordance Index:", concordance[1]))
+```
+
+```{r}
+# 6. Check proportional hazards assumption
+ph_test <- cox.zph(train_model)
+print(ph_test)
+plot(ph_test)
+
+# 7. Validation metrics
+
+# Concordance index (C-index)
+pred_risk <- predict(train_model, newdata = test_data, type = "risk")
+c_index <- survConcordance(Surv(test_data$match_duration, test_data$event) ~ pred_risk)
+print(paste("Concordance Index (C-index):", round(c_index$concordance, 3)))
+
+# 8. Time-dependent ROC curves and AUC at specific time points
+# Choose time points to evaluate prediction accuracy
+times <- c(365, 730, 1095)  # 1, 2, and 3 years
+
+# Calculate linear predictor for test data
+lp <- predict(train_model, newdata = test_data, type = "lp")
+
+# Create time-dependent ROC curves
+troc <- timeROC(
+  T = test_data$match_duration,
+  delta = test_data$event,
+  marker = lp,
+  cause = 1,
+  times = times,
+  ROC = TRUE
+)
+
+# Print AUC at each time point
+print("Time-dependent AUC values:")
+for (i in 1:length(times)) {
+  print(paste("AUC at", times[i]/365, "years:", round(troc$AUC[i], 3)))
+}
+
+# Plot time-dependent ROC curves
+plot(troc, time = times[1], title = paste("ROC curve at", times[1]/365, "year"))
+plot(troc, time = times[2], add = TRUE, col = "red")
+plot(troc, time = times[3], add = TRUE, col = "blue")
+legend("bottomright", 
+       legend = c(paste(times[1]/365, "year"), paste(times[2]/365, "years"), paste(times[3]/365, "years")),
+       col = c("black", "red", "blue"), 
+       lwd = 2)
+
+# 9. Brier Score (prediction error)
+pec_data <- pec::pec(
+  list(Cox = train_model),
+  data = test_data,
+  formula = Surv(match_duration, event) ~ 1,
+  times = times,
+  exact = FALSE,
+  cens.model = "marginal"
+)
+
+# Plot prediction error curves
+plot(pec_data, legend = TRUE)
+
+# Print Brier scores at each time point
+print("Brier Scores at different time points (lower is better):")
+brier_scores <- pec::crps(pec_data)
+print(brier_scores)
+
+# 10. Calibration plot
+# Calculate predicted survival probabilities at 1 year
+time_point <- 365  # 1 year
+surv_prob <- predictSurvProb(train_model, newdata = test_data, times = time_point)
+
+# Create calibration plot
+test_data$pred_surv <- surv_prob
+test_data$pred_group <- cut(test_data$pred_surv, breaks = seq(0, 1, by = 0.1), include.lowest = TRUE)
+
+# Calculate actual survival for each group
+calibration <- test_data %>%
+  group_by(pred_group) %>%
+  summarize(
+    n = n(),
+    pred_surv_mean = mean(pred_surv),
+    actual_surv = sum(match_duration > time_point & event == 0) / n(),
+    .groups = "drop"
+  )
+
+# Print calibration table
+print("Calibration table for 1-year survival:")
+print(calibration)
+
+# Plot calibration
+ggplot(calibration, aes(x = pred_surv_mean, y = actual_surv)) +
+  geom_point(aes(size = n)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  xlim(0, 1) + ylim(0, 1) +
+  labs(
+    x = "Predicted 1-year survival probability",
+    y = "Observed 1-year survival probability",
+    title = "Calibration plot for 1-year survival predictions"
+  ) +
+  theme_minimal()
+
+# 11. Identifying influential variables
+coef_df <- as.data.frame(summary(train_model)$coefficients)
+coef_df$variable <- rownames(coef_df)
+coef_df <- coef_df %>%
+  select(variable, coef = `coef`, HR = `exp(coef)`, p_value = `Pr(>|z|)`) %>%
+  arrange(p_value)
+
+# Print most significant predictors
+print("Most significant predictors (p < 0.05):")
+print(coef_df %>% filter(p_value < 0.05))
+
+# 12. Variable importance plot
+ggplot(coef_df, aes(x = reorder(variable, HR), y = HR)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = HR * exp(-1.96 * `coef`), 
+                    ymax = HR * exp(1.96 * `coef`)), 
+                width = 0.2) +
+  geom_hline(yintercept = 1, linetype = "dashed") +
+  coord_flip() +
+  labs(x = "Variable", y = "Hazard Ratio (95% CI)", 
+       title = "Variable Importance Plot") +
+  theme_minimal()
+
+# 13. Cumulative prediction accuracy across time
+integrated_auc <- with(troc, cbind(times/365, AUC))
+colnames(integrated_auc) <- c("Years", "AUC")
+print("Integrated time-dependent AUC:")
+print(integrated_auc)
+
+# 14. Create Kaplan-Meier survival curves for a key variable
+km_fit <- survfit(Surv(match_duration, event) ~ Program.Type, data = df_model)
+
+# Plot survival curves
+ggsurvplot(
+  km_fit,
+  data = df_model,
+  risk.table = TRUE,
+  pval = TRUE,
+  conf.int = TRUE,
+  xlim = c(0, 1000),
+  xlab = "Days",
+  ylab = "Match Survival Probability",
+  title = "Match Survival by Program Type",
+  ggtheme = theme_minimal()
+)
+```
 
