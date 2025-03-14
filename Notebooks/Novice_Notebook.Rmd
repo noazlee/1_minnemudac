@@ -31,6 +31,58 @@ df <- read.csv('../Data/Novice.csv')
 ```
 
 ```{r}
+extract_features <- function(df) {
+  df$has_interest <- FALSE
+  df$has_proximity <- FALSE
+  
+  # Define keywords for each category
+  interest_keywords <- c(
+    "interests", "shared interests", "enjoy", "like", "both like",
+    "sport", "active", "outdoors", "creative", "art", "craft",
+    "basketball", "football", "fishing", "swimming", "biking",
+    "science", "math", "learning", "exploring", "trying new things",
+    "activities", "hobbies"
+  )
+  
+  proximity_keywords <- c(
+    "mile", "miles", "distance", "convenient", "close", 
+    "apart", "mins", "minutes", "proximity", "nearby"
+  )
+  
+  # Process each row
+  for (i in 1:nrow(df)) {
+    rationale <- df$Rationale.for.Match[i]
+    
+    # Skip if rationale is NA or empty
+    if (is.na(rationale) || rationale == "") {
+      next
+    }
+    
+    # Check for interest keywords
+    for (keyword in interest_keywords) {
+      if (grepl(keyword, rationale, ignore.case = TRUE)) {
+        df$has_interest[i] <- TRUE
+        break
+      }
+    }
+    
+    # Check for proximity keywords
+    for (keyword in proximity_keywords) {
+      if (grepl(keyword, rationale, ignore.case = TRUE)) {
+        df$has_proximity[i] <- TRUE
+        break
+      }
+    }
+  }
+  
+  return(df)
+}
+
+df <- extract_features(df)
+```
+
+
+```{r}
 # Initial Inspection
 print("Initial Inspection:")
 str(df)
@@ -245,7 +297,9 @@ df$Little.Contact..Language.s..Spoken <- NULL
 df$Little.Acceptance.Date <- NULL
 df$Little.Application.Received <- NULL
 df$Little.Moved.to.RTBM.in.MF <- NULL
+df$Little.Mailing.Address.Census.Block.Group <- NULL
 df$Little.Acceptance.Date <- NULL
+df$Big.Home.Census.Block.Group <- NULL
 ```
 
 
@@ -379,14 +433,11 @@ ggplot(df, aes(x = Match.Length, fill = is.na(County_Factor))) +
 
 Looking at Closure_Reason:
 ```{r}
-# Load necessary libraries
 library(ggplot2)
 library(dplyr)
 library(tidyr)
 library(forcats)
 
-# Assuming 'df' is your dataframe with the data
-# Let's first look at summary statistics for Match.Length by Closure.Reason
 match_summary <- df %>%
   group_by(Closure_Reason_Category) %>%
   summarise(
@@ -520,6 +571,10 @@ prop_plot <- df %>%
 
 print(prop_plot)
 ```
+```{r}
+df
+```
+
 
 MODEL 1:
 ```{r}
@@ -528,7 +583,7 @@ cox_model <- coxph(Surv(Match.Length, Stage) ~ Big.Gender + Big.Age + Program.Ty
 summary(cox_model)
 ```
 Interpretation:
-Big.Gender: (1-0.88) - Males have 12% lower hazard (stay in match longer) than females.
+Big.Gender: (1-0.90) - Males have 10% lower hazard (stay in match longer) than females.
 
 ```{r}
 library(survminer) # Kaplan Meier Curve
@@ -564,8 +619,320 @@ corrplot(cor_matrix, method = "color", type = "upper", order = "hclust",
          tl.col = "black", tl.srt = 45, addCoef.col = "black")
 ```
 
+```{r}
+df
+vis_miss(df)
+table(df$Big.Home.Census.Block.Group)
+```
+
+```{r}
+# Function to impute missing values in categorical variables using mode
+impute_categorical_mode <- function(data, columns = c("Big.Gender", "County_Factor", "Occupation_Category")) {
+  imputed_data <- data
+
+  find_mode <- function(x) {
+    # Remove NA values
+    x_no_na <- x[!is.na(x)]
+    
+    # If all values are NA, return NA
+    if (length(x_no_na) == 0) {
+      return(NA)
+    }
+    
+    freq_table <- table(x_no_na)
+    mode_value <- names(freq_table)[which.max(freq_table)]
+    
+    return(mode_value)
+  }
+  
+  for (col in columns) {
+    if (!(col %in% colnames(data))) {
+      warning(paste("Column", col, "not found in dataset. Skipping."))
+      next
+    }
+    mode_val <- find_mode(data[[col]])
+    missing_indices <- is.na(imputed_data[[col]])
+    imputed_data[missing_indices, col] <- mode_val
+    
+    num_imputed <- sum(missing_indices)
+    if (num_imputed > 0) {
+      cat(paste0("Imputed ", num_imputed, " missing values in '", col, 
+                "' with mode value: '", mode_val, "'\n"))
+    } else {
+      cat(paste0("No missing values found in '", col, "'\n"))
+    }
+  }
+  
+  return(imputed_data)
+}
+
+df <- impute_categorical_mode(df)
+```
 
 
+```{r}
+df
+```
+
+
+MODEL 2:
+```{r}
+#Checking cox model on missing data
+cox_model <- coxph(Surv(Match.Length, Stage) ~ Big.Gender + Big.Age + Program.Type + Occupation_Category + has_interest + has_proximity, data = df)
+summary(cox_model)
+```
+
+```{r}
+library(survminer) # Kaplan Meier Curve
+ggsurvplot(survfit(cox_model), data = df, pval = TRUE)
+```
+
+(Model with all years) - all records, less factors
+
+
+
+
+
+
+
+
+
+
+(Model post 2018) - Only look at records after 2018? when the data stops having so many missing data - less records, more factors
+```{r}
+df <- read.csv('../Data/Novice.csv')
+extract_features <- function(df) {
+  df$has_interest <- FALSE
+  df$has_proximity <- FALSE
+  
+  # Define keywords for each category
+  interest_keywords <- c(
+    "interests", "shared interests", "enjoy", "like", "both like",
+    "sport", "active", "outdoors", "creative", "art", "craft",
+    "basketball", "football", "fishing", "swimming", "biking",
+    "science", "math", "learning", "exploring", "trying new things",
+    "activities", "hobbies"
+  )
+  
+  proximity_keywords <- c(
+    "mile", "miles", "distance", "convenient", "close", 
+    "apart", "mins", "minutes", "proximity", "nearby"
+  )
+  
+  # Process each row
+  for (i in 1:nrow(df)) {
+    rationale <- df$Rationale.for.Match[i]
+    
+    # Skip if rationale is NA or empty
+    if (is.na(rationale) || rationale == "") {
+      next
+    }
+    
+    # Check for interest keywords
+    for (keyword in interest_keywords) {
+      if (grepl(keyword, rationale, ignore.case = TRUE)) {
+        df$has_interest[i] <- TRUE
+        break
+      }
+    }
+    
+    # Check for proximity keywords
+    for (keyword in proximity_keywords) {
+      if (grepl(keyword, rationale, ignore.case = TRUE)) {
+        df$has_proximity[i] <- TRUE
+        break
+      }
+    }
+  }
+  
+  return(df)
+}
+
+df <- extract_features(df)
+df$Match.ID.18Char <- NULL
+df$Little.ID <- NULL
+df$Big.ID <- NULL
+df$Big..Military <- NULL
+df$Big.Employer <- NULL
+df$Closure.Details <- NULL
+df$Big.Open.to.Cross.Gender.Match <- NULL
+df$Big.Contact..Interest.Finder...Sports <- NULL
+df$Big.Contact..Interest.Finder...Places.To.Go <- NULL
+df$Big.Contact..Interest.Finder...Hobbies <- NULL
+df$Big.Contact..Interest.Finder...Entertainment <- NULL
+df$Big.Contact..Interest.Finder...Hobbies <- NULL
+df$Big.Contact..Created.Date <- NULL
+df$Big.Enrollment..Created.Date <- NULL
+df$Little.Contact..Interest.Finder...Sports <- NULL
+df$Little.Contact..Interest.Finder...Outdoors <- NULL
+df$Little.Contact..Interest.Finder...Arts <- NULL
+df$Little.Contact..Interest.Finder...Places.To.Go <- NULL
+df$Little.Contact..Interest.Finder...Hobbies <- NULL
+df$Little.Contact..Interest.Finder...Entertainment <- NULL
+df$Little.Contact..Interest.Finder...Other.Interests <- NULL
+df$Little.Other.Interests <- NULL
+df$Little.Contact..Interest.Finder...Career <- NULL
+df$Little.Contact..Interest.Finder...Personality <- NULL
+df$Little.Contact..Interest.Finder...Three.Wishes <- NULL
+df$Little.Other.Interests <- NULL
+df$Rationale.for.Match <- NULL
+df$Big.County[df$Big.County == ""] <- NA
+df$Match.Activation.Date <- as.Date(df$Match.Activation.Date, format="%Y-%m-%d")
+df$Big.Approved.Date <- as.Date(df$Match.Activation.Date, format="%Y-%m-%d") 
+df$Big.Acceptance.Date <- as.Date(df$Match.Activation.Date, format="%Y-%m-%d") 
+df$Match.Closure.Meeting.Date <- as.Date(df$Match.Activation.Date, format="%Y-%m-%d") 
+df$Big.Birthdate <- as.Date(df$Match.Activation.Date, format="%Y-%m-%d") 
+df$Little.Birthdate <- as.Date(df$Match.Activation.Date, format="%Y-%m-%d") 
+df$Little.Interview.Date <- as.Date(df$Match.Activation.Date, format="%Y-%m-%d") 
+#Function to check if Big and Little ethnicities share any keywords
+check_ethnicity_match <- function(df) {
+  # Create a new column to store the matching result
+  df$Ethnicity_Match <- FALSE
+  
+  # Loop through each row
+  for (i in 1:nrow(df)) {
+    # Get the Big and Little race/ethnicity values
+    big_race <- df$Big.Race.Ethnicity[i]
+    little_race <- df$Little.Participant..Race.Ethnicity[i]
+    
+    # Skip if either value is NA
+    if (is.na(big_race) || is.na(little_race)) {
+      df$Ethnicity_Match[i] <- NA
+      next
+    }
+    
+    # Convert to character (in case they're factors)
+    big_race <- as.character(big_race)
+    little_race <- as.character(little_race)
+    
+    # Split strings by semicolons to handle multiple ethnicities
+    big_races <- unlist(strsplit(big_race, ";"))
+    little_races <- unlist(strsplit(little_race, ";"))
+    
+    # Clean up any leading/trailing spaces
+    big_races <- trimws(big_races)
+    little_races <- trimws(little_races)
+    
+    # Check if there's any match
+    match_found <- FALSE
+    for (b in big_races) {
+      for (l in little_races) {
+        # Extract keywords to compare (simplify the comparison)
+        keywords <- c("White", "Black", "Asian", "Hispanic", "Indian", "Alaska", 
+                     "Middle Eastern", "North African", "Other")
+        
+        # Check for each keyword
+        for (keyword in keywords) {
+          if (grepl(keyword, b, ignore.case = TRUE) && 
+              grepl(keyword, l, ignore.case = TRUE)) {
+            match_found <- TRUE
+            break
+          }
+        }
+        if (match_found) break
+      }
+      if (match_found) break
+    }
+    
+    # Assign the result
+    df$Ethnicity_Match[i] <- match_found
+  }
+  
+  return(df)
+}
+
+df <- check_ethnicity_match(df)
+df$Big.Race.Ethnicity <- NULL
+df$Little.Participant..Race.Ethnicity <- NULL
+df$Stage <- factor(ifelse(df$Stage == "Closed", "Closed", "Active"))
+df[df == ""] <- NA
+df$Big.Languages[df$Big.Languages == ""] <- NA
+df$Big.Gender <- factor(df$Big.Gender, 
+                        levels = c("Female", "Male"),
+                        labels = c("Female", "Male"))
+
+df$Program <- as.factor(df$Program)
+df$Program.Type <- as.factor(df$Program.Type)
+df$Little.Contact..Language.s..Spoken <- NULL
+df$Little.Application.Received <- NULL
+df$Little.Moved.to.RTBM.in.MF <- NULL
+df$Little.Mailing.Address.Census.Block.Group <- NULL
+consolidate_counties <- function(county_data, min_frequency = 10) {
+  consolidated <- county_data
+  county_counts <- table(county_data[county_data != ""])
+  rare_counties <- names(county_counts[county_counts < min_frequency])
+  consolidated[consolidated %in% rare_counties] <- "Other"
+  # Convert to factor with meaningful levels
+  consolidated <- factor(consolidated)
+  
+  return(consolidated)
+}
+
+df$County_Factor <- consolidate_counties(df$Big.County)
+summary(df$County_Factor)
+df$Big.County <- NULL
+# Function to categorize text fields based on keywords
+categorize_text <- function(text_vector, category_rules, default_category = "Other") {
+  result <- rep(default_category, length(text_vector))
+  
+  if(any(is.na(text_vector))) {
+    result[is.na(text_vector)] <- NA
+  }
+  
+  text_vector <- tolower(trimws(text_vector))
+  
+  for(i in 1:length(category_rules)) {
+    category_name <- names(category_rules)[i]
+    keywords <- category_rules[[i]]
+    
+    for(j in which(!is.na(text_vector))) {
+      if(any(sapply(tolower(keywords), function(kw) grepl(kw, text_vector[j], ignore.case = TRUE)))) {
+        result[j] <- category_name
+      }
+    }
+  }
+  
+  result <- factor(result)
+  return(result)
+}
+
+# Define category rules for each text field
+closure_reason_rules <- list(
+  "Scheduling_Issues" = c("schedule", "time", "availability", "busy", "time constraint"),
+  "Relationship_Problems" = c("relationship", "conflict", "disagree", "personal", "not compatible", "incompatible", "lost contact", "lost interest"),
+  "Relocation" = c("move", "moved", "relocation", "relocate", "different city", "different state"),
+  "Family_Issues" = c("family", "parent", "guardian", "parental"),
+  "School_Issues" = c("school", "academic", "education", "grade", "graduated", "graduate"),
+  "Health_Issues" = c("health", "illness", "medical", "sick", "disease", "covid", "deceased"),
+  "Behavior_Issues" = c("behavior", "conduct", "attitude", "disciplin"),
+  "Program_Requirements" = c("requirement", "qualify", "eligibility", "criteria", "guideline", "infraction", "expectations", "challenges"),
+  "Success" = c("success", "successful")
+)
+
+occupation_rules <- list(
+  "Business_Finance" = c("account", "financ", "budget", "analyst", "bank", "economic", "market", "business", "consultant", "insurance", "entrepreneur"),
+  "Education" = c("teach", "professor", "instructor", "education", "academic", "school", "college", "university"),
+  "Healthcare" = c("doctor", "nurse", "medical", "health", "dental", "therapist", "clinic", "hospital", "coach"),
+  "Technology" = c("software", "developer", "engineer", "IT", "computer", "tech", "program", "web", "data"),
+  "Legal" = c("lawyer", "attorney", "legal", "law", "judge", "paralegal"),
+  "Arts_Media" = c("artist", "design", "writer", "media", "journalist", "creative", "music", "film", "arts"),
+  "Service_Industry" = c("retail", "sales", "service", "hospitality", "restaurant", "customer", "child"),
+  "Trades_Labor" = c("construct", "mechanic", "carpenter", "electric", "plumb", "repair", "builder", "labor"),
+  "Student" = c("student", "graduate", "undergrad"),
+  "Unknown" = c("unknown"),
+  "Retired" = c("retire")
+)
+
+df$Closure_Reason_Category <- categorize_text(df$Closure.Reason, closure_reason_rules)
+df$Occupation_Category <- categorize_text(df$Big.Occupation, occupation_rules)
+summary(df$Closure_Reason_Category)
+summary(df$Occupation_Category)
+df$Closure.Reason <- NULL
+df$Big.Occupation <- NULL
+```
+```{r}
+vis_miss(df)
+```
 
 
 
