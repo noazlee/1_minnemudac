@@ -582,7 +582,6 @@ print(prop_plot)
 df
 ```
 
-
 MODEL 1:
 ```{r}
 #Checking cox model on missing data

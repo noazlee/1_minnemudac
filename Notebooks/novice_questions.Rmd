@@ -319,8 +319,7 @@ df$Big.Contact..Marital.Status <- factor(
 df$Stage <- ifelse(df$Stage == "Closed", 1, 0)
 ```
 
-## Understand and analyze the response variable distributions: Match
-Length:
+## Understand and analyze the response variable distributions: Match Length:
 
 ```{r}
 summary(df$Match.Length)
@@ -390,7 +389,7 @@ ggplot(df_filtered, aes(x = Program.Type, y = Match.Length, fill = Program.Type)
     x = "Program Type",
     y = "Match Length (months)"
   ) +
-  theme_minimal()
+  theme_bw()
 
 # Density plot to compare distributions
 ggplot(df_filtered, aes(x = Match.Length, fill = Program.Type)) +
@@ -400,7 +399,7 @@ ggplot(df_filtered, aes(x = Match.Length, fill = Program.Type)) +
     x = "Match Length (months)",
     y = "Density"
   ) +
-  theme_minimal()
+  theme_bw()
 
 # Violin plot for a more detailed view
 ggplot(df_filtered, aes(x = Program.Type, y = Match.Length, fill = Program.Type)) +
@@ -410,7 +409,7 @@ ggplot(df_filtered, aes(x = Program.Type, y = Match.Length, fill = Program.Type)
     x = "Program Type",
     y = "Match Length (months)"
   ) +
-  theme_minimal()
+  theme_bw()
 ```
 
 ```{r}
@@ -437,7 +436,7 @@ ggplot(df, aes(x = Match.Activation.Date, y = Match.Length)) +
   labs(title = "Match Length Over Activation Date",
        x = "Activation Date",
        y = "Match Length") +
-  theme_minimal() +
+  theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
@@ -454,7 +453,7 @@ ggplot(df, aes(x = Match.Activation.Date, fill = Closure_Reason_Category)) +
     fill = "Closure Reason"
   ) +
   scale_fill_brewer(palette = "Set2") +
-  theme_minimal() +
+  theme_bw() +
   theme(
     legend.position = "bottom",
     axis.text.x = element_text(angle = 45, hjust = 1)
@@ -476,7 +475,7 @@ ggplot(df_monthly, aes(x = Month, y = Proportion, fill = Closure_Reason_Category
     fill = "Closure Reason"
   ) +
   scale_fill_brewer(palette = "Set2") +
-  theme_minimal() +
+  theme_bw() +
   theme(legend.position = "bottom")
 ```
 
@@ -506,7 +505,7 @@ ggplot(df, aes(x = Big.Age, y = Match.Length, color = factor(Stage, labels = c("
     y = "Match Length (months)",
     color = "Stage"  # Legend title
   ) +
-  theme_minimal()
+  theme_bw()
 
 # Age group analysis
 df$Age_Group <- cut(df$Big.Age, 
@@ -539,7 +538,7 @@ ggplot(df, aes(x = Big.Gender, y = Match.Length, fill = Big.Gender)) +
   labs(title = "Match Length by Big's Gender",
        x = "Gender",
        y = "Match Length (months)") +
-  theme_minimal()
+  theme_bw()
 
 # Statistical test for gender difference
 t.test(Match.Length ~ Big.Gender, data = df)
@@ -565,7 +564,7 @@ ggplot(df %>% filter(!is.na(Ethnicity_Match)),
        y = "Match Length (months)") +
   scale_x_discrete(labels = c("FALSE" = "No Match", "TRUE" = "Match")) +
   scale_fill_discrete(name = "Ethnicity Match", labels = c("No Match", "Match")) +
-  theme_minimal()
+  theme_bw()
 ```
 Statsitically discerinible difference for match length and ethnicity match - longer if same ethnicity.
 
@@ -608,7 +607,7 @@ ggplot(df, aes(x = reorder(County_Factor, Match.Length, FUN = median),
   labs(title = "Match Length by County",
        x = "County",
        y = "Match Length (months)") +
-  theme_minimal() +
+  theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         legend.position = "none")
 ```
@@ -632,7 +631,7 @@ ggplot(df, aes(x = reorder(Occupation_Category, Match.Length, FUN = median),
   labs(title = "Match Length by Big's Occupation",
        x = "Occupation Category",
        y = "Match Length (months)") +
-  theme_minimal() +
+  theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         legend.position = "none")
 
@@ -676,7 +675,7 @@ ggplot(gender_closure, aes(x = Big.Gender, y = Percentage, fill = Closure_Reason
        x = "Gender",
        y = "Percentage",
        fill = "Closure Reason") +
-  theme_minimal() +
+  theme_bw() +
   theme(legend.position = "right")
 ```
 Roughly equal - more family issues for males? more health issues for females?
@@ -736,7 +735,7 @@ create_boxplot <- function(df, var) {
     labs(title = paste("Match Length by", var),
          x = var,
          y = "Match Length (months)") +
-    theme_minimal() +
+    theme_bw() +
     theme(legend.position = "none") +
     scale_x_discrete(labels = c("0" = "No", "1" = "Yes"))
 }
@@ -781,7 +780,7 @@ ggplot(df_with_indicators, aes(x = factor(interest_count), y = Match.Length)) +
   labs(title = "Match Length by Number of Interest Categories Mentioned",
        x = "Number of Interest Categories",
        y = "Match Length (months)") +
-  theme_minimal()
+  theme_bw()
 
 # Test statistical significance
 interest_model <- lm(Match.Length ~ has_interests + personality_compatibility + has_proximity + 
@@ -890,7 +889,7 @@ print("Key insights and recommendations for Big Brothers Big Sisters Twin Cities
 print("1. Most important factors for successful matches:")
 ```
 
-Survival analysis on successful matches
+## Survival analysis on successful matches
 ```{r}
 library(survival)
 cox_model <- coxph(Surv(Match.Length, successful_match_numeric) ~ Big.Gender + Big.Age + Program.Type + Occupation_Category + has_interests + has_proximity + has_goals + Ethnicity_Match , data = df)
@@ -898,4 +897,12 @@ summary(cox_model)
 ```
 Surprisingly very good model. Program type, big age and shared interest seem to be the most telling signs of match length by succesful match.
 
+**Kaplan Meier curve function not working rn but I will try to add that later
+
+Model but on strictly whether the match is still ongoing or not
+```{r}
+library(survival)
+cox_model <- coxph(Surv(Match.Length, Stage) ~ Big.Gender + Big.Age + Program.Type + Occupation_Category + has_interests + has_proximity + has_goals + Ethnicity_Match , data = df)
+summary(cox_model)
+```
 
