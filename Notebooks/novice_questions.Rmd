@@ -23,11 +23,13 @@ library(lubridate)
 library(ranger)   
 library(workflows) 
 library(recipes) 
-tidymodels_prefer(quiet = TRUE) 
 ```
 
-Preprocessing:
+Big Brother Big Sisters Twin Cities the largest and oldest youth award-winning mentoring organization in the greater Twin Cities.  Each year, we match up youth (Littles age 8-13) and their families with caring adults (Bigs) who volunteer as mentors.  Through a variety of community-based, school-based, and workplace-based mentoring programs, and together with our community, we want every youth to have a mentor, be affirmed in who they are, and explore who they want to be.
 
+# Question: What are things present in 'successful matches'? - matches ongoing, lasting long or closed 'successfully'?
+
+Preprocessing: (THIS IS STUFF FROM MY PREVIOUS NOTEBOOKS - IGNORE OR LOOK BACK AT IT LATER - MAINLY DELETING IRRELEVANT COLUMNS AND DATA TRANSFORMATION)
 ```{r}
 df <- read.csv('../Data/Novice.csv')
 extract_binary_indicators <- function(df) {
@@ -272,8 +274,7 @@ closure_reason_rules <- list(
   "Health_Issues" = c("health", "illness", "medical", "sick", "disease", "covid", "deceased"),
   "Behavior_Issues" = c("behavior", "conduct", "attitude", "disciplin"),
   "Program_Requirements" = c("requirement", "qualify", "eligibility", "criteria", "guideline", "infraction", "expectations", "challenges"),
-  "Success" = c("success", "successful"),
-  "Little_Age" = c("age of little", "too young", "not old enough", "underage", "minor", "young age", "small child", "infant", "toddler")
+  "Success" = c("success", "successful")
 )
 
 occupation_rules <- list(
@@ -355,10 +356,12 @@ text(x = 1.3, y = q3, labels = paste("3Q:", round(q3, 2)), col = "black")
 qqnorm(df$Match.Length)
 qqline(df$Match.Length) # Looks exponentially distributed
 ```
+Definitely not normally distributed as expected. Maybe Log transform? Survival analysis?
 
 ```{r}
 table(df$Closure_Reason_Category)
 ```
+Only 95 defined as successful.
 
 ## How do the response variable distributions vary across Program Type?
 
@@ -541,6 +544,7 @@ ggplot(df, aes(x = Big.Gender, y = Match.Length, fill = Big.Gender)) +
 # Statistical test for gender difference
 t.test(Match.Length ~ Big.Gender, data = df)
 ```
+Statistically discernable difference in match length and gender. Longer for male bigs.
 
 ```{r}
 # Ethnicity match analysis
@@ -563,6 +567,7 @@ ggplot(df %>% filter(!is.na(Ethnicity_Match)),
   scale_fill_discrete(name = "Ethnicity Match", labels = c("No Match", "Match")) +
   theme_minimal()
 ```
+Statsitically discerinible difference for match length and ethnicity match - longer if same ethnicity.
 
 ```{r}
 # Interest and proximity analysis
@@ -583,6 +588,7 @@ proximity_summary <- df %>%
   )
 proximity_summary
 ```
+Statistically discernible difference for close distance - longer for closer.
 
 ```{r}
 # County analysis
@@ -606,6 +612,7 @@ ggplot(df, aes(x = reorder(County_Factor, Match.Length, FUN = median),
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         legend.position = "none")
 ```
+
 
 ```{r}
 # Occupation analysis
@@ -644,7 +651,7 @@ marital_summary <- df_marital %>%
   )
 marital_summary
 ```
-
+Of those which are available, not single bigs have longer match lengths - more stability?
 
 ## Analysis of closure reasons by demographics
 ```{r}
@@ -672,6 +679,7 @@ ggplot(gender_closure, aes(x = Big.Gender, y = Percentage, fill = Closure_Reason
   theme_minimal() +
   theme(legend.position = "right")
 ```
+Roughly equal - more family issues for males? more health issues for females?
 
 ```{r}
 # Statistical tests for demographic effects on match length
@@ -693,11 +701,12 @@ model <- lm(Match.Length ~ Big.Age + Big.Gender + Program.Type + Ethnicity_Match
            data = df %>% filter(!is.na(Ethnicity_Match)))
 summary(model)
 ```
-Very poor predictive performance.
+Very poor predictive performance. But many important predictors.
 
 
 ## Looking at interests
 ```{r}
+df_with_indicators <- df
 summary_indicators <- df_with_indicators %>%
   summarise(across(c(has_interests, personality_compatibility, has_proximity, 
                     has_commitment, has_experience, has_preference,
@@ -741,6 +750,7 @@ plot_list <- lapply(c("has_interests", "personality_compatibility", "has_proximi
 # Arrange plots in a grid
 grid.arrange(grobs = plot_list, ncol = 2)
 ```
+has_experience not statistically discernible and present in data much.
 
 ```{r, fig.width=4, fig.height=4}
 # Analyze the impact of different interest combinations
@@ -796,8 +806,8 @@ sum(df$successful_match[df$Stage == 0])
 # Matches with "Success" as closure reason
 df$successful_match[df$Closure_Reason_Category == "Success"] <- TRUE
 
-# Long duration matches (define long as above the 75th percentile)
-long_duration_threshold <- quantile(df$Match.Length, 0.75, na.rm = TRUE)
+# Long duration matches (define long as above the 80th percentile)
+long_duration_threshold <- quantile(df$Match.Length, 0.8, na.rm = TRUE)
 df$successful_match[df$Match.Length > long_duration_threshold & 
                       !is.na(df$Match.Length)] <- TRUE
 
@@ -805,50 +815,43 @@ df$successful_match[df$Match.Length > long_duration_threshold &
 success_rate <- mean(df$successful_match, na.rm = TRUE)
 print(paste("Overall success rate:", round(success_rate * 100, 1), "%"))
 ```
-
+A third of the matches are successful (maybe slightly biased because many matches just started).
 
 analyzing factors associated with successful matches
 ```{r}
-# 1. Mentor age group
 age_group_success <- aggregate(successful_match ~ Age_Group, data = df, FUN = mean)
 age_group_success$count <- aggregate(successful_match ~ Age_Group, data = df, FUN = length)$successful_match
 age_group_success <- age_group_success[order(-age_group_success$successful_match),]
 print("Success rate by mentor age group:")
 print(age_group_success)
 
-# 2. Gender
 gender_success <- aggregate(successful_match ~ Big.Gender, data = df, FUN = mean)
 gender_success$count <- aggregate(successful_match ~ Big.Gender, data = df, FUN = length)$successful_match
 print("Success rate by mentor gender:")
 print(gender_success)
 
-# 3. Program type
 program_type_success <- aggregate(successful_match ~ Program.Type, data = df, FUN = mean)
 program_type_success$count <- aggregate(successful_match ~ Program.Type, data = df, FUN = length)$successful_match
 print("Success rate by program type:")
 print(program_type_success)
 
-# 4. Ethnicity match
 ethnicity_match_success <- aggregate(successful_match ~ Ethnicity_Match, data = df, FUN = mean)
 ethnicity_match_success$count <- aggregate(successful_match ~ Ethnicity_Match, data = df, FUN = length)$successful_match
 print("Success rate by ethnicity match:")
 print(ethnicity_match_success)
 
-# 5. Occupation category
 occupation_success <- aggregate(successful_match ~ Occupation_Category, data = df, FUN = mean)
 occupation_success$count <- aggregate(successful_match ~ Occupation_Category, data = df, FUN = length)$successful_match
 occupation_success <- occupation_success[order(-occupation_success$successful_match),]
 print("Success rate by occupation category:")
 print(occupation_success)
 
-# 6. County
 county_success <- aggregate(successful_match ~ County_Factor, data = df, FUN = mean)
 county_success$count <- aggregate(successful_match ~ County_Factor, data = df, FUN = length)$successful_match
 county_success <- county_success[order(-county_success$successful_match),]
 print("Success rate by county:")
 print(county_success)
 
-# 7. Compatibility factors
 # Create a function to check success rate for binary factors
 check_binary_factor <- function(factor_name) {
   formula <- as.formula(paste("successful_match ~", factor_name))
@@ -866,8 +869,7 @@ for (factor in compatibility_factors) {
   check_binary_factor(factor)
 }
 
-# 8. Logistic regression to identify key predictors of success
-# First, convert factors to proper format where needed
+# Logistic regression to identify key predictors of success
 df$successful_match_numeric <- as.numeric(df$successful_match)
 
 model <- glm(successful_match_numeric ~ Big.Age + Big.Gender + Program.Type + 
@@ -876,19 +878,24 @@ model <- glm(successful_match_numeric ~ Big.Age + Big.Gender + Program.Type +
               has_commitment + has_experience + has_preference + has_challenges + has_goals,
             family = binomial(link = "logit"), data = df)
 
-# Print summary of model
 summary_model <- summary(model)
 print("Logistic regression results (key predictors of successful matches):")
 print(summary_model)
 
-# Simplified output of key predictors (those with significant p-values)
 significant_predictors <- summary_model$coefficients[summary_model$coefficients[,4] < 0.05,]
 print("Significant predictors of match success:")
 print(significant_predictors)
 
-# 9. Key insights and recommendations
 print("Key insights and recommendations for Big Brothers Big Sisters Twin Cities:")
 print("1. Most important factors for successful matches:")
 ```
+
+Survival analysis on successful matches
+```{r}
+library(survival)
+cox_model <- coxph(Surv(Match.Length, successful_match_numeric) ~ Big.Gender + Big.Age + Program.Type + Occupation_Category + has_interests + has_proximity + has_goals + Ethnicity_Match , data = df)
+summary(cox_model)
+```
+Surprisingly very good model. Program type, big age and shared interest seem to be the most telling signs of match length by succesful match.
 
 
