@@ -31,6 +31,13 @@ df <- read.csv('../Data/Novice.csv')
 ```
 
 ```{r}
+filtered_df <- df %>%
+  filter(grepl("age of little|age.*small|minor", Closure.Reason, ignore.case = TRUE))
+filtered_df
+```
+
+
+```{r}
 extract_features <- function(df) {
   df$has_interest <- FALSE
   df$has_proximity <- FALSE
@@ -853,10 +860,29 @@ df$Big.Gender <- factor(df$Big.Gender,
 
 df$Program <- as.factor(df$Program)
 df$Program.Type <- as.factor(df$Program.Type)
+df$Big.Level.of.Education <- NULL
+df$Big.Languages <- NULL
+df$Big.Car.Access <- NULL
+df$Big.Contact..Preferred.Communication.Type <- NULL
+df$Big.Contact..Former.Big.Little <- NULL
+df$Big.Contact..Volunteer.Availability <- NULL
+df$Little.RTBM.Date.in.MF <- NULL
 df$Little.Contact..Language.s..Spoken <- NULL
+df$Little.Acceptance.Date <- NULL
 df$Little.Application.Received <- NULL
 df$Little.Moved.to.RTBM.in.MF <- NULL
 df$Little.Mailing.Address.Census.Block.Group <- NULL
+df$Little.Acceptance.Date <- NULL
+df$Big.Home.Census.Block.Group <- NULL
+df$Big.Employer.School.Census.Block.Group <- NULL
+df$Little.Gender <- NULL
+df$Little.Birthdate <- NULL
+df$Little.RTBM.in.Matchforce <- NULL
+df$Little.Interview.Date <- NULL
+df$Big.Acceptance.Date <- NULL
+df$Big.Assessment.Uploaded <- NULL
+df$Big.Days.Interview.to.Match <- NULL
+df$Big.Days.Interview.to.Acceptance <- NULL
 consolidate_counties <- function(county_data, min_frequency = 10) {
   consolidated <- county_data
   county_counts <- table(county_data[county_data != ""])
@@ -929,10 +955,87 @@ summary(df$Closure_Reason_Category)
 summary(df$Occupation_Category)
 df$Closure.Reason <- NULL
 df$Big.Occupation <- NULL
+df$Big.Days.Acceptance.to.Match <- abs(df$Big.Days.Acceptance.to.Match)
+
+# Sort the original DataFrame in place
+df <- df[order(df$Match.Activation.Date), ]
+# Create a factor variable with two levels
+df$Big.Enrollment..Record.Type <- factor(
+  ifelse(df$Big.Enrollment..Record.Type == "CB Volunteer Enrollment", 
+         "CB Volunteer Enrollment", 
+         "Others")
+)
+# Create new categorical variable from Big.Contact..Marital.Status
+df$Big.Contact..Marital.Status <- factor(
+  case_when(
+    df$Big.Contact..Marital.Status == "Single" ~ "Single",
+    !is.na(df$Big.Contact..Marital.Status) ~ "Not Single",
+    TRUE ~ NA_character_
+  ),
+  levels = c("Single", "Not Single")
+)
+df$Stage <- ifelse(df$Stage == "Closed", 1, 0)
 ```
+
+```{r}
+table(df$Big.Contact..Marital.Status)
+```
+
 ```{r}
 vis_miss(df)
 ```
+I really want to use Big.Days.Acceptance.to.Match - trying fewer records to do this - Concern - many matches still ongoing as this is very recent data. However, this may still inform us on really bad cases where matches end very early. (2022-24 data)
+```{r}
+vis_miss(df[2429:3275,])
+df[2429:3275,]
+```
+
+```{r}
+df_test <- df[2429:3275,]
+cox_model <- coxph(Surv(log(Match.Length), Stage) ~ Big.Gender + Big.Age + Program.Type + 
+                                        Occupation_Category + has_interest + has_proximity + 
+                                        Big.Days.Acceptance.to.Match + Big.Re.Enroll + 
+                                        Big.Enrollment..Record.Type + Big.Contact..Marital.Status, data = df_test)
+summary(cox_model)
+```
 
 
+```{r}
+# Create a complete dataset
+complete_vars <- c("Match.Length", "Stage", "Big.Gender", "Big.Age", "Program.Type", 
+                  "Occupation_Category", "has_interest", "has_proximity", 
+                  "Big.Days.Acceptance.to.Match", "Big.Re.Enroll", 
+                  "Big.Enrollment..Record.Type", "Big.Contact..Marital.Status")
+
+df_complete <- df[complete.cases(df[, complete_vars]), ]
+
+# Check how many rows were removed
+cat("Original rows:", nrow(df), "\n")
+cat("Complete rows:", nrow(df_complete), "\n")
+cat("Rows removed:", nrow(df) - nrow(df_complete), "\n")
+
+library(survival)
+library(MASS)
+
+# Create the null model
+null_model <- coxph(Surv(Match.Length, Stage) ~ 1, data = df_complete)
+
+# Use stepAIC with forward selection
+step_model <- stepAIC(null_model, 
+                      scope = list(lower = ~ 1, 
+                                 upper = ~ Big.Gender + Big.Age + Program.Type + 
+                                        Occupation_Category + has_interest + has_proximity + 
+                                        Big.Days.Acceptance.to.Match + Big.Re.Enroll + 
+                                        Big.Enrollment..Record.Type + Big.Contact..Marital.Status),
+                      direction = "forward")
+
+# Check the final model
+summary(step_model)
+```
+
+```{r}
+library(survminer) # Kaplan Meier Curve
+ggsurvplot(survfit(cox_model), data = df, pval = TRUE)
+```
+- not really much you can do when most of the tested data are still matched
 
