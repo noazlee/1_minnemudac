@@ -5,6 +5,10 @@ Contributors: Joyce Li, Aiden Guan, Mia Wang, Noah Lee, Anu Jajodia
 
 Stuff we have done so far (on Novice):
 
+Novice Report is in:
+* novice_questions.rmd
+* novice_questions.pdf
+
 in df_cleaning_and_alignment:
 * Created Alignment Gender Column, interest columns, key word columns from 'Rationale for Match'
 * Converted columns to appropriate data type - numeric, categorical, date
