@@ -921,6 +921,7 @@ print(paste("Accuracy:", accuracy))
 summary(logistic_model_train)
 ```
 ```{r}
+library(car)   
 vif(logistic_model_train)
 ```
 
