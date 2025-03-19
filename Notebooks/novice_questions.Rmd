@@ -135,6 +135,7 @@ df$Match.Closure.Meeting.Date <- as.Date(df$Match.Closure.Meeting.Date, format="
 df$Big.Birthdate <- as.Date(df$Big.Birthdate, format="%Y-%m-%d") 
 df$Little.Birthdate <- as.Date(df$Little.Birthdate, format="%Y-%m-%d") 
 df$Little.Interview.Date <- as.Date(df$Little.Interview.Date, format="%Y-%m-%d") 
+df$Little.RTBM.in.MF <- as.Date(df$Little.Interview.Date, format="%Y-%m-%d") 
 #Function to check if Big and Little ethnicities share any keywords
 check_ethnicity_match <- function(df) {
   # Create a new column to store the matching result
@@ -210,7 +211,7 @@ df$Big.Car.Access <- NULL
 df$Big.Contact..Preferred.Communication.Type <- NULL
 df$Big.Contact..Former.Big.Little <- NULL
 df$Big.Contact..Volunteer.Availability <- NULL
-df$Little.RTBM.Date.in.MF <- NULL
+# df$Little.RTBM.Date.in.MF <- NULL
 df$Little.Contact..Language.s..Spoken <- NULL
 df$Little.Acceptance.Date <- NULL
 df$Little.Application.Received <- NULL
@@ -889,19 +890,19 @@ print(significant_predictors)
 ## Logistic Regresison on whether Match was a Success
 ```{r}
 filtered_data <- df %>%
-  filter(Match.Activation.Date < as.Date("2023-11-01"))
+  filter(Match.Activation.Date < as.Date("2023-06-01"))
 set.seed(8080)
 sample_size <- floor(0.8 * nrow(filtered_data))
 train_indices <- sample(seq_len(nrow(filtered_data)), size = sample_size)
 train_data <- filtered_data[train_indices, ]
 test_data <- filtered_data[-train_indices, ]
 
-logistic_model_train <- glm(successful_match ~ Big.Age + Big.Gender + Program.Type + 
+logistic_model_train <- glm(successful_match ~ log(Big.Age) + Big.Gender + Program.Type + 
                             has_interests + personality_compatibility + 
                             has_proximity + has_commitment + has_experience + 
                             has_preference + has_challenges + has_goals + 
-                            Ethnicity_Match + County_Factor + Closure_Reason_Category + 
-                            Occupation_Category + Age_Group, 
+                            Ethnicity_Match + County_Factor + 
+                            Occupation_Category, 
                             data = train_data, 
                             family = binomial(link = "logit"))
 
@@ -920,238 +921,10 @@ print(paste("Accuracy:", accuracy))
 ```{r}
 summary(logistic_model_train)
 ```
+
+
+
 ```{r}
 library(car)   
 vif(logistic_model_train)
 ```
-
-```{r}
-boxTidwell(successful_match ~ Big.Age + Match.Length, data = df_filtered)
-```
-```{r}
-plot(logistic_model_train, which = 4) 
-```
-S` 
-'b 
-
-## Survival analysis on successful matches
-```{r}
-library(survival)
-cox_model <- coxph(Surv(Match.Length, successful_match_numeric) ~ Big.Gender + Big.Age + Program.Type + Occupation_Category + has_interests + has_proximity + has_goals + Ethnicity_Match , data = df)
-summary(cox_model)
-```
-Surprisingly very good model. Program type, big age and shared interest seem to be the most telling signs of match length by succesful match.
-
-```{r}
-cox_test <- cox.zph(cox_model)
-print(cox_test)
-```
-
-```{r}
-# distinct time intervals based on data
-
-early_matches <- subset(df, Match.Length <= 6)  # 0-6 months
-medium_matches <- subset(df, Match.Length > 6 & Match.Length <= 12)  # 6-12 months
-long_matches <- subset(df, Match.Length > 12)  # > 12 months
-
-early_model <- coxph(
-  Surv(Match.Length, successful_match_numeric) ~ 
-    Big.Gender + Big.Age + Program.Type + 
-    Occupation_Category + has_interests + has_proximity + 
-    has_goals + Ethnicity_Match, 
-  data = early_matches
-)
-
-medium_model <- coxph(
-  Surv(Match.Length, successful_match_numeric) ~ 
-    Big.Gender + Big.Age + Program.Type + 
-    Occupation_Category + has_interests + has_proximity + 
-    has_goals + Ethnicity_Match, 
-  data = medium_matches
-)
-
-long_model <- coxph(
-  Surv(Match.Length, successful_match_numeric) ~ 
-    Big.Gender + Big.Age + Program.Type + 
-    Occupation_Category + has_interests + has_proximity + 
-    has_goals + Ethnicity_Match, 
-  data = long_matches
-)
-
-cox_test_early <- cox.zph(early_model)
-cox_test_medium <- cox.zph(medium_model)
-cox_test_long <- cox.zph(long_model)
-
-summary(early_model)
-summary(medium_model)
-summary(long_model)
-```
-
-Early:
-Program.TypeSite Based Facilitated, has interest
-Concordance = 0.703
-
-Middle:
-Health care, interests, goals
-Concordance = 0.781
-
-Late:
-Big.Age, Program.Typesite, has interests
-Concordance = 0.627
-
-Shared Interests have a dramatic effect on match success across all time periods, but with varying magnitude:
-
-Short-term: HR = 12.11
-Medium-term: HR = 43.01
-Long-term: HR = 2.12
-This suggests interests are absolutely critical for early and medium success but less deterministic for long-term outcomes
-
-
-Program Types show a pattern:
-Site Based Facilitated programs excel in short-term (HR = 2.32) and long-term (HR = 3.99)
-Site programs perform poorly short-term (HR = 0.39) but succeed long-term (HR = 2.26)
-This suggests different program structures have different timelines for success
-
-Goals matter most in medium-term matches (HR = 1.81)
-Mentor Age becomes significant only in long-term matches
-
-```{r}
-cox_test <- cox.zph(early_model)
-print(cox_test)
-cox_test <- cox.zph(medium_model)
-print(cox_test)
-cox_test <- cox.zph(long_model)
-print(cox_test)
-```
-Early model valid, others not so.
-
-```{r}
-df_filtered <- df[df$Match.Length > 0, ]
-weibull_aft <- survreg(
-  Surv(Match.Length, successful_match_numeric) ~ 
-    Big.Gender + Big.Age + Program.Type + 
-    Occupation_Category + has_interests + has_proximity + 
-    has_goals + Ethnicity_Match,
-  data = df_filtered, 
-  dist = "weibull"
-)
-summary(weibull_aft)
-```
-
-positive coefficients indicate longer survival times, which in this case means longer-lasting matches. The scale parameter being less than 1 (0.52) suggests that the hazard rate (risk of match ending) decreases over time, meaning matches that survive the initial period tend to become more stable.
-
-```{r}
-# Load necessary packages
-library(survival)
-library(survminer)
-library(car)
-library(ggplot2)
-library(flexsurv)
-
-
-# Weibull distribution appropriateness
-
-# Extract model residuals
-resids <- residuals(weibull_aft)
-
-# QQ plot of residuals
-qqnorm(resids)
-qqline(resids)
-
-# Create a log(-log(survival)) vs log(time) plot to check linearity
-# First, create a simple Weibull model with just intercept for basic check
-simple_model <- survreg(Surv(Match.Length, successful_match_numeric) ~ 1, 
-                        data = df_filtered, dist = "weibull")
-
-# Generate survival estimates
-surv_obj <- Surv(df_filtered$Match.Length, df_filtered$successful_match_numeric)
-surv_fit <- survfit(surv_obj ~ 1)
-
-# Extract survival estimates and times
-surv_data <- data.frame(
-  time = surv_fit$time,
-  surv = surv_fit$surv
-)
-
-# Calculate log(-log(survival)) and log(time)
-surv_data$log_time <- log(surv_data$time)
-surv_data$log_neg_log_surv <- log(-log(surv_data$surv))
-
-# Plot (should be approximately linear for Weibull)
-ggplot(surv_data, aes(x = log_time, y = log_neg_log_surv)) +
-  geom_point() +
-  geom_smooth(method = "lm", se = FALSE) +
-  labs(x = "log(time)", y = "log(-log(survival))",
-       title = "Checking Weibull assumption: log(-log(S)) vs log(t)") +
-  theme_minimal()
-
-# Compare with other distributions using AIC
-model_weibull <- survreg(formula = Surv(Match.Length, successful_match_numeric) ~ 
-    Big.Gender + Big.Age + Program.Type + Occupation_Category + 
-    has_interests + has_proximity + has_goals + Ethnicity_Match, 
-    data = df_filtered, dist = "weibull")
-
-model_exponential <- survreg(formula = Surv(Match.Length, successful_match_numeric) ~ 
-    Big.Gender + Big.Age + Program.Type + Occupation_Category + 
-    has_interests + has_proximity + has_goals + Ethnicity_Match, 
-    data = df_filtered, dist = "exponential")
-
-model_lognormal <- survreg(formula = Surv(Match.Length, successful_match_numeric) ~ 
-    Big.Gender + Big.Age + Program.Type + Occupation_Category + 
-    has_interests + has_proximity + has_goals + Ethnicity_Match, 
-    data = df_filtered, dist = "lognormal")
-
-model_loglogistic <- survreg(formula = Surv(Match.Length, successful_match_numeric) ~ 
-    Big.Gender + Big.Age + Program.Type + Occupation_Category + 
-    has_interests + has_proximity + has_goals + Ethnicity_Match, 
-    data = df_filtered, dist = "loglogistic")
-
-# Compare AIC values
-aic_values <- c(
-  Weibull = AIC(model_weibull),
-  Exponential = AIC(model_exponential),
-  Lognormal = AIC(model_lognormal),
-  Loglogistic = AIC(model_loglogistic)
-)
-print("AIC comparison of different distributions:")
-print(aic_values)
-print(paste("Best model based on AIC:", names(which.min(aic_values))))
-
-
-# Check proportional hazards
-
-# Convert survreg model to Cox model for diagnostics
-cox_model <- coxph(Surv(Match.Length, successful_match_numeric) ~ 
-    Big.Gender + Big.Age + Program.Type + Occupation_Category + 
-    has_interests + has_proximity + has_goals + Ethnicity_Match, 
-    data = df_filtered)
-
-# Test proportional hazards assumption
-ph_test <- cox.zph(cox_model)
-print(ph_test)
-
-# Plot Schoenfeld residuals
-par(mfrow = c(3, 3))
-plot(ph_test)
-par(mfrow = c(1, 1))
-
-
-# Check for influential observations
-
-# Calculate deviance residuals
-dev_resids <- residuals(model, type = "deviance")
-
-# Plot deviance residuals vs fitted values
-plot(predict(model), dev_resids,
-     xlab = "Fitted Values", ylab = "Deviance Residuals",
-     main = "Residual Plot")
-abline(h = 0, lty = 2)
-
-# Create index plot for deviance residuals
-plot(dev_resids, type = "h",
-     xlab = "Observation Index", ylab = "Deviance Residuals",
-     main = "Index Plot of Deviance Residuals")
-abline(h = c(-3, 0, 3), lty = c(2, 1, 2))
-
-```
-
