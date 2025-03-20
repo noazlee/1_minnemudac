@@ -317,9 +317,37 @@ df$Big.Contact..Marital.Status <- factor(
 df$Stage <- ifelse(df$Stage == "Closed", 1, 0)
 ```
 ```{r}
-head(df)
+# Function to order completion dates within each match ID group
+arrange_dates_by_match <- function(data) {
+  
+  # Group by Match ID and arrange by completion date
+  ordered_data <- data %>%
+    group_by(Match.ID.18Char) %>%
+    arrange(Completion.Date, .by_group = TRUE) %>%
+    ungroup()
+  
+  return(ordered_data)
+}
+
+# Example usage with your match_data
+df <- arrange_dates_by_match(df)
 ```
 
+
+```{r}
+order_dates <- function(df) {
+  df %>%
+    group_by(Match.ID.18Char) %>%
+    arrange(as.POSIXct(Completion.Date), .by_group = TRUE) %>%
+    ungroup()
+}
+
+df <- order_dates(df)
+```
+
+```{r}
+head(df)
+```
 
 ```{r}
 format_string <- function(input_string) {
@@ -328,14 +356,11 @@ format_string <- function(input_string) {
   return(formatted_string)
 }
 
-cat(format_string(df$`Match.Support.Contact.Notes`[3]))
+cat(format_string(df$`Match.Support.Contact.Notes`[1:4]))
 ```
 
-
-
-
 ```{r}
-match_summary <- df %>% # Wrong - match length wrong just take from df
+match_summary <- df %>%
   group_by(Match.ID.18Char) %>%
   summarize(
     Match_Activation_Date = first(Match.Activation.Date),
@@ -396,8 +421,358 @@ match_summary <- match_summary %>%
 
 ```
 
-
 ```{r}
 match_summary
 ```
 
+```{r}
+df
+```
+
+```{r}
+convert_factors_to_integers <- function(df) {
+  factor_cols <- sapply(df, is.factor)
+  
+  for (col in names(df)[factor_cols]) {
+    # Get the levels of the factor
+    levels_map <- levels(df[[col]])
+    mapping <- setNames(1:length(levels_map), levels_map)
+    
+    cat("Column:", col, "\n")
+    for (i in 1:length(mapping)) {
+      cat("  ", i, "=", names(mapping)[i], "\n")
+    }
+    cat("\n")
+    
+    df[[col]] <- as.integer(df[[col]])
+  }
+  
+  return(df)
+}
+
+df <- convert_factors_to_integers(df)
+```
+
+
+```{r}
+str(df)
+```
+
+```{r}
+numeric_cols <- sapply(df, function(x) is.numeric(x) || is.integer(x))
+df_numeric <- df
+factor_cols <- sapply(df, is.factor)
+for (col in names(df)[factor_cols]) {
+  df_numeric[[col]] <- as.numeric(df[[col]])
+}
+logical_cols <- sapply(df, is.logical)
+for (col in names(df)[logical_cols]) {
+  df_numeric[[col]] <- as.numeric(df[[col]])
+}
+df_numeric <- df_numeric[, numeric_cols | factor_cols | logical_cols]
+cor(df_numeric, use="pairwise.complete.obs")
+```
+```{r}
+match_summary <- df %>%
+  group_by(Match.ID.18Char) %>%
+  summarize(
+    Match_Activation_Date = first(Match.Activation.Date),
+    Match_Closure_Date = if(all(is.na(Match.Closure.Meeting.Date))) NA else max(Match.Closure.Meeting.Date, na.rm = TRUE),
+    Is_Closed = !all(is.na(Match.Closure.Meeting.Date)),
+    Final_Match_Length = max(Match.Length, na.rm = TRUE),
+    
+    Big_Age = first(Big.Age),
+    Big_Gender = first(Big.Gender),
+    Program = first(Program),
+    Program_Type = first(Program.Type),
+    Has_Interests = max(as.numeric(as.character(has_interests))),
+    Personality_Compatibility = max(as.numeric(as.character(personality_compatibility))),
+    Has_Proximity = max(as.numeric(as.character(has_proximity))),
+    Has_Commitment = max(as.numeric(as.character(has_commitment))),
+    Has_Experience = max(as.numeric(as.character(has_experience))),
+    Has_Preference = max(as.numeric(as.character(has_preference))),
+    Has_Challenges = max(as.numeric(as.character(has_challenges))),
+    Has_Goals = max(as.numeric(as.character(has_goals))),
+    Ethnicity_Match = first(Ethnicity_Match),
+    County = first(County_Factor),
+    Closure_Reason = if(any(!is.na(Closure_Reason_Category))) first(na.omit(Closure_Reason_Category)) else NA
+  ) %>%
+  mutate(
+    Time_Months = ifelse(Is_Closed,
+                   as.numeric(difftime(Match_Closure_Date, Match_Activation_Date, units = "days")) / 30.44,
+                   Final_Match_Length)
+  )
+
+
+#Big_Gender, Program, Program_Type, County, Closure_Reason - FACTORS
+
+# Create a model matrix for each factor separately and join them back
+
+# For Big_Gender
+gender_dummies <- model.matrix(~ Big_Gender - 1, data = match_summary) %>%
+  as.data.frame() %>%
+  # Keep the row order information
+  mutate(row_id = row_number())
+
+# For Program_Type
+program_type_dummies <- model.matrix(~ Program_Type - 1, data = match_summary) %>%
+  as.data.frame() %>%
+  mutate(row_id = row_number())
+
+# Repeat for other factors as needed...
+county_dummies <- model.matrix(~ County - 1, data = match_summary) %>%
+  as.data.frame() %>%
+  mutate(row_id = row_number())
+
+match_summary <- match_summary %>%
+  mutate(row_id = row_number()) %>%
+  left_join(gender_dummies, by = "row_id") %>%
+  left_join(program_type_dummies, by = "row_id") %>%
+  left_join(county_dummies, by = "row_id") %>%
+  select(-row_id) 
+
+match_summary$Is_Closed <- as.numeric(match_summary$Is_Closed)
+match_summary$Ethnicity_Match <- as.numeric(match_summary$Ethnicity_Match)
+match_summary
+```
+
+```{r}
+ggplot(match_summary, aes(x = Match_Activation_Date, y = Final_Match_Length)) +
+  geom_point(alpha = 0.5, color = "blue") +  # Scatter plot with transparency
+  geom_smooth(method = "loess", color = "red", se = TRUE) +  # Trend line
+  labs(title = "Match Length Over Activation Date",
+       x = "Activation Date",
+       y = "Match Length") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+## SURVIVAL ANALYSIS STARTS NOW
+ 
+```{r}
+match_summary$Final_Match_Length <- ifelse(match_summary$Final_Match_Length == 0, 
+                                        match_summary$Final_Match_Length + 0.001, 
+                                        match_summary$Final_Match_Length)
+recsurv <- Surv(match_summary$Final_Match_Length,match_summary$Is_Closed)
+```
+
+```{r}
+fit_KM <- survfit(recsurv~1,type="kaplan-meier", conf.type="log-log")
+plot(fit_KM, main="survival function for rectime (K-M estimate)", xlab="months", ylab="p")
+```
+```{r} 
+# Restricted mean
+print(fit_KM,print.rmean=TRUE)
+```
+```{r}
+plot(fit_KM, fun="cumhaz",  main="hazard function for rectime (K-M estimate)", xlab="months", ylab="p")
+```
+```{r}
+plot(fit_KM, fun="log", main="survival function for log rectime (K-M estimate)", xlab="months", ylab="p")
+```
+```{r}
+match_summary
+```
+
+### Kaplan meiter curve by factors
+Age:
+```{r}
+leg.txt<-c("0 - Below Median", "1 - Above Median")
+fit <- survfit(recsurv~as.numeric(match_summary$Big_Age>median(match_summary$Big_Age)))
+plot(fit, col=c(2,4), main="survival function for above/below median age", xlab="months", ylab="p")
+legend("topright",leg.txt,col=c(2,4),lty=1)
+```
+
+Gender:
+```{r}
+fit <- survfit(recsurv~match_summary$Big_Gender.x)
+plot(fit, col=c(2,4), main="survival function on gender", xlab="months", ylab="p")
+legend("topright",leg.txt,col=c(2,4),lty=1)
+```
+
+
+Program Type:
+```{r}
+table(match_summary$Program_Type.x)
+```
+
+
+```{r}
+leg.txt <- c("Program Type 1", "Program Type 2", "Program Type 3")
+fit <- survfit(recsurv ~ match_summary$Program_Type.x)
+plot(fit, col=c(2, 4, 6), 
+     main="Survival Function by Program Type", 
+     xlab="Months", 
+     ylab="Probability")
+legend("topright", leg.txt, col=c(2, 4, 6), lty=1)
+```
+
+```{r}
+leg.txt <- c("Has No Shared Interest", "Has Shared Interests")
+fit <- survfit(recsurv ~ match_summary$Has_Interests)
+plot(fit, col=c(2, 4), 
+     main="Survival Function by Interests", 
+     xlab="Months", 
+     ylab="Probability")
+legend("topright", leg.txt, col=c(2, 4), lty=1)
+```
+
+```{r}
+#Empirical cdf
+ecdf_no_interests <- ecdf(match_summary$Big_Age[match_summary$Has_Interests == 1])
+plot(ecdf_no_interests, verticals=TRUE, do.points=FALSE, col="red",
+     main="Empirical CDF of Big Age by Interest", 
+     xlab="Big Age", ylab="Probability")
+
+ecdf_with_interests <- ecdf(match_summary$Big_Age[match_summary$Has_Interests == 2])
+lines(ecdf_with_interests, verticals=TRUE, do.points=FALSE, col="blue")
+```
+
+
+### Fitting distributions to data
+```{r}
+fit_exp<-survreg(recsurv~1, dist="exponential")
+fit_weibull<-survreg(recsurv~1, dist="weibull")
+fit_gauss<-survreg(recsurv~1, dist="gaussian")
+fit_logistic<-survreg(recsurv~1, dist="logistic")
+fit_lognormal<-survreg(recsurv~1, dist="lognormal")
+fit_loglogistic<-survreg(recsurv~1, dist="loglogistic")
+summary(fit_exp)
+summary(fit_weibull)
+summary(fit_gauss)
+summary(fit_logistic)
+summary(fit_lognormal)
+summary(fit_loglogistic)
+```
+Log Normal Dist. looks the best.
+
+```{r}
+library(flexsurv)
+fit_exp<-flexsurvreg(recsurv~1, dist="exp")
+fit_weibull<-flexsurvreg(recsurv~1, dist="weibull")
+fit_gamma<-flexsurvreg(recsurv~1, dist="gamma")
+fit_gengamma<-flexsurvreg(recsurv~1, dist="gengamma")
+fit_genf<-flexsurvreg(recsurv~1, dist="genf")
+fit_lognormal<-flexsurvreg(recsurv~1, dist="lnorm")
+fit_gompertz<-flexsurvreg(recsurv~1, dist="gompertz")
+fit_exp
+fit_weibull
+fit_gamma
+fit_gengamma
+fit_genf
+fit_lognormal
+fit_gompertz
+plot(fit_exp)
+plot(fit_weibull)
+plot(fit_gamma)
+plot(fit_gengamma)
+plot(fit_genf)
+plot(fit_lognormal)
+plot(fit_gompertz)
+
+```
+genf looks best.
+
+
+```{r}
+#log likelihood test
+fit_exp$loglik
+fit_weibull$loglik
+fit_gamma$loglik
+fit_genf$loglik
+fit_gengamma$loglik
+fit_lognormal$loglik
+fit_gompertz$loglik
+
+```
+
+```{r}
+loglik_genf <- fit_genf$loglik
+loglik_lognormal <- fit_lognormal$loglik
+
+LR_statistic <- -2 * (loglik_lognormal - loglik_genf)
+
+df_diff <- 2 
+p_value <- 1 - pchisq(LR_statistic, df = df_diff)
+
+cat("Likelihood Ratio Test: Generalized F vs. Lognormal\n")
+cat("LR statistic:", LR_statistic, "\n")
+cat("Degrees of freedom:", df_diff, "\n")
+cat("p-value:", p_value, "\n")
+cat("Conclusion:", ifelse(p_value < 0.05, 
+                         "Generalized F provides significantly better fit (p<0.05)",
+                         "No significant improvement with Generalized F (p≥0.05)"), "\n")
+
+```
+Generalized F dist. better than Log normal
+
+```{r}
+fit_exp$AIC
+fit_weibull$AIC
+fit_gamma$AIC
+fit_gengamma$AIC
+fit_genf$AIC
+fit_lognormal$AIC
+fit_gompertz$AIC
+```
+
+```{r}
+library(KMsurv)
+# lifetab()
+```
+
+### Looking at logged data
+```{r}
+match_summary$loggedAge <- log(match_summary$Big_Age)
+match_summary$loggedTime <- log(match_summary$Final_Match_Length + 1)
+logrecsurv<-Surv(match_summary$loggedTime,match_summary$Is_Closed)
+```
+
+```{r}
+fit_exp<-flexsurvreg(logrecsurv~1, dist="exp")
+fit_weibull<-flexsurvreg(logrecsurv~1, dist="weibull")
+fit_gamma<-flexsurvreg(logrecsurv~1, dist="gamma")
+fit_gengamma<-flexsurvreg(logrecsurv~1, dist="gengamma")
+fit_genf<-flexsurvreg(logrecsurv~1, dist="genf")
+fit_lognormal<-flexsurvreg(logrecsurv~1, dist="lnorm")
+fit_gompertz<-flexsurvreg(logrecsurv~1, dist="gompertz")
+fit_exp
+fit_weibull
+fit_gamma
+fit_gengamma
+fit_genf
+fit_lognormal
+fit_gompertz
+plot(fit_exp)
+plot(fit_weibull)
+plot(fit_gamma)
+plot(fit_gengamma)
+plot(fit_genf)
+plot(fit_lognormal)
+plot(fit_gompertz)
+```
+
+```{r}
+fit_genf # about the same
+```
+
+```{r}
+plot(fit_genf, type="hazard")
+plot(fit_genf, type="cumhaz")
+plot(fit_genf, type="survival")
+```
+
+Probability plot
+```{r}
+library(e1071)
+probplot(match_summary$Final_Match_Length)
+probplot(match_summary$Final_Match_Length, "qunif")
+probplot(match_summary$Final_Match_Length, "qexp") # looks like the best
+probplot(match_summary$Final_Match_Length, "qnorm")
+probplot(match_summary$Final_Match_Length, "qweibull", shape=1)
+probplot(match_summary$Final_Match_Length, "qlnorm")
+probplot(match_summary$Final_Match_Length, "qgamma", shape=1)
+```
+
+### Confidence intervals and Differential Plots
