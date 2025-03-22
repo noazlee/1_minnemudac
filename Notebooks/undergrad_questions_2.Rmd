@@ -1,0 +1,668 @@
+---
+title: "MinneMUDAC DS - Undergrad Questions 2"
+subtitle: "Noah Lee"
+output:
+  pdf_document: default
+  html_document: default
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r}
+#| include: false
+library(tidyverse)
+library(tidymodels)
+library(naniar)    
+library(dplyr)
+library(ggformula)
+library(ggplot2) 
+library(GGally)
+library(survival)
+library(lubridate)
+library(ranger)   
+library(workflows) 
+library(recipes) 
+```
+
+# Predictive model for Match Length
+
+Preprocessing
+```{r}
+df <- read.csv('../Data/Training.csv')
+extract_binary_indicators <- function(df) {
+  # Initialize new columns with FALSE (0)
+  interest_categories <- c("has_interests", "personality_compatibility", "has_proximity", 
+                          "has_commitment", "has_experience", "has_preference",
+                          "has_challenges", "has_goals")
+  
+  for (category in interest_categories) {
+    df[[category]] <- FALSE  # Initialize with FALSE for all rows
+  }
+  
+  # Define keywords for each category
+  keywords <- list(
+    has_interests = c("outdoors", "hiking", "biking", "fishing", "camping", "parks", "nature", "gardening", "swimming", "sledding", "horseback riding", "skateboarding", "snowboarding", "ice skating", "picnics", "planting", "rock climbing", "feeding ducks", "flying kites", "sports", "basketball", "football", "soccer", "baseball", "hockey", "bowling", "tennis", "running", "yoga", "Zumba", "gymnastics", "arts", "crafts", "drawing", "painting", "pottery", "sewing", "knitting", "photography", "model cars", "model planes", "creative activities", "acting", "singing", "dancing", "playing musical instruments", "writing","indoor activities", "reading", "cooking", "baking", "board games", "video games", "puzzles", "Lego", "animals", "dogs", "cats", "horses", "pets", "animal care", "learning", "science", "math", "history", "social studies", "STEM projects", "other interests", "fashion", "hair", "nails", "volunteering", "museums", "libraries", "zoos", "movies", "plays"),
+    personality_compatibility = c("outgoing", "talkative", "bubbly", "energetic", "enthusiastic", "charismatic", 
+                                "shy", "reserved", "quiet", "introverted", "soft-spoken", "calm", 
+                                "adventurous", "curious", "exploratory", "open to new things", 
+                                "friendly", "kind", "sweet", "thoughtful", "empathetic", 
+                                "funny", "goofy", "humorous", "light-hearted", 
+                                "mature", "respectful", "responsible", "thoughtful", 
+                                "active", "sporty", "energetic", "athletic", 
+                                "creative", "imaginative", "artistic", "crafty", 
+                                "patient", "calm", "steady", "nurturing"),
+    has_proximity = c("miles", "minutes", "close", "far", "convenient", "driving", "traffic", "commute"),
+    has_commitment = c("long-term", "committed", "consistent", "reliable", "short-term", "temporary", "limited time", "2-4 times a month", "weekly"),
+    has_experience = c("child experience", "nanny", "teacher", "coach", "mentor", "social work", "counseling", "teaching", "overcoming challenges", "mental health"),
+    has_preference= c("age", "younger", "older", "in 20s", "gender", "male", "female", "religion", "Christian", "Catholic", "cultural background", "African American", "Hispanic", "non-smoker", "no guns"),
+    has_challenges = c("behavioral challenges", "ADHD", "unmedicated", "redirection", "mental health", "depression", "anxiety", "PTSD", "family dynamics", "divorce", "strained relationships", "bullying", "picked on", "self-esteem", "academic challenges", "tutoring", "homework help"),
+    has_goals = c("self-esteem", "confidence", "self-image", "leadership", "decision-making", "independence", "academic success", "math", "science", "reading", "social skills", "communication", "making friends", "exploration", "trying new things", "learning new skills")
+  )
+  
+  # Check if Rationale.for.Match column exists in the dataframe
+  if (!"Rationale.for.Match" %in% names(df)) {
+    warning("Column 'Rationale.for.Match' not found in dataframe. No keywords will be extracted.")
+    # Return dataframe with all FALSE values
+    return(df)
+  }
+  
+  # Process each row
+  for (i in 1:nrow(df)) {
+    rationale <- df$Rationale.for.Match[i]
+    
+    # Skip if rationale is NA or empty
+    if (is.na(rationale) || rationale == "") {
+      next
+    }
+    
+    # Check for keywords in each category
+    for (category in names(keywords)) {
+      category_keywords <- keywords[[category]]
+      for (keyword in category_keywords) {
+        if (grepl(keyword, rationale, ignore.case = TRUE)) {
+          df[[category]][i] <- TRUE
+          break  # Once we find a match, no need to check other keywords in this category
+        }
+      }
+    }
+  }
+  
+  # Convert logical columns to factors (0/1)
+  for (category in interest_categories) {
+    df[[category]] <- as.factor(as.integer(df[[category]]))
+  }
+  
+  return(df)
+}
+
+df <- extract_binary_indicators(df)
+df$Little.ID <- NULL
+df$Big.ID <- NULL
+df$Big.Employer <- NULL
+df$Closure.Details <- NULL
+df$Big.Open.to.Cross.Gender.Match <- NULL
+df$Big.Contact..Interest.Finder...Sports <- NULL
+df$Big.Contact..Interest.Finder...Places.To.Go <- NULL
+df$Big.Contact..Interest.Finder...Hobbies <- NULL
+df$Big.Contact..Interest.Finder...Entertainment <- NULL
+df$Big.Contact..Interest.Finder...Hobbies <- NULL
+df$Big.Contact..Created.Date <- NULL
+df$Big.Enrollment..Created.Date <- NULL
+df$Little.Contact..Interest.Finder...Sports <- NULL
+df$Little.Contact..Interest.Finder...Outdoors <- NULL
+df$Little.Contact..Interest.Finder...Arts <- NULL
+df$Little.Contact..Interest.Finder...Places.To.Go <- NULL
+df$Little.Contact..Interest.Finder...Hobbies <- NULL
+df$Little.Contact..Interest.Finder...Entertainment <- NULL
+df$Little.Contact..Interest.Finder...Other.Interests <- NULL
+df$Little.Other.Interests <- NULL
+df$Little.Contact..Interest.Finder...Career <- NULL
+df$Little.Contact..Interest.Finder...Personality <- NULL
+df$Little.Contact..Interest.Finder...Three.Wishes <- NULL
+df$Little.Other.Interests <- NULL
+df$Rationale.for.Match <- NULL
+df$Big.County[df$Big.County == ""] <- NA
+df$Match.Activation.Date <- as.Date(df$Match.Activation.Date, format="%Y-%m-%d")
+df$Big.Approved.Date <- as.Date(df$Big.Approved.Date, format="%Y-%m-%d") 
+df$Big.Acceptance.Date <- as.Date(df$Big.Acceptance.Date, format="%Y-%m-%d") 
+df$Match.Closure.Meeting.Date <- as.Date(df$Match.Closure.Meeting.Date, format="%Y-%m-%d") 
+df$Big.Birthdate <- as.Date(df$Big.Birthdate, format="%Y-%m-%d") 
+df$Little.Birthdate <- as.Date(df$Little.Birthdate, format="%Y-%m-%d") 
+df$Little.Interview.Date <- as.Date(df$Little.Interview.Date, format="%Y-%m-%d") 
+df$Little.RTBM.Date.in.MF <- as.Date(df$Little.RTBM.Date.in.MF, format="%Y-%m-%d") 
+#Function to check if Big and Little ethnicities share any keywords
+check_ethnicity_match <- function(df) {
+  # Create a new column to store the matching result
+  df$Ethnicity_Match <- FALSE
+  
+  # Loop through each row
+  for (i in 1:nrow(df)) {
+    # Get the Big and Little race/ethnicity values
+    big_race <- df$Big.Race.Ethnicity[i]
+    little_race <- df$Little.Participant..Race.Ethnicity[i]
+    
+    # Skip if either value is NA
+    if (is.na(big_race) || is.na(little_race)) {
+      df$Ethnicity_Match[i] <- NA
+      next
+    }
+    
+    # Convert to character (in case they're factors)
+    big_race <- as.character(big_race)
+    little_race <- as.character(little_race)
+    
+    # Split strings by semicolons to handle multiple ethnicities
+    big_races <- unlist(strsplit(big_race, ";"))
+    little_races <- unlist(strsplit(little_race, ";"))
+    
+    # Clean up any leading/trailing spaces
+    big_races <- trimws(big_races)
+    little_races <- trimws(little_races)
+    
+    # Check if there's any match
+    match_found <- FALSE
+    for (b in big_races) {
+      for (l in little_races) {
+        # Extract keywords to compare (simplify the comparison)
+        keywords <- c("White", "Black", "Asian", "Hispanic", "Indian", "Alaska", 
+                     "Middle Eastern", "North African", "Other")
+        
+        # Check for each keyword
+        for (keyword in keywords) {
+          if (grepl(keyword, b, ignore.case = TRUE) && 
+              grepl(keyword, l, ignore.case = TRUE)) {
+            match_found <- TRUE
+            break
+          }
+        }
+        if (match_found) break
+      }
+      if (match_found) break
+    }
+    
+    # Assign the result
+    df$Ethnicity_Match[i] <- match_found
+  }
+  
+  return(df)
+}
+
+df <- check_ethnicity_match(df)
+df$Stage <- factor(ifelse(df$Stage == "Closed", "Closed", "Active"))
+df[df == ""] <- NA
+df$Big.Languages[df$Big.Languages == ""] <- NA
+df$Big.Gender <- factor(df$Big.Gender, 
+                        levels = c("Female", "Male"),
+                        labels = c("Female", "Male"))
+df$Big..Military <- NULL
+df$Program <- as.factor(df$Program)
+df$Program.Type <- as.factor(df$Program.Type)
+df$Big.Languages <- NULL
+df$Big.Contact..Preferred.Communication.Type <- NULL
+df$Big.Contact..Former.Big.Little <- NULL
+df$Big.Contact..Volunteer.Availability <- NULL
+# df$Little.RTBM.Date.in.MF <- NULL
+df$Little.Contact..Language.s..Spoken <- NULL
+df$Little.Acceptance.Date <- NULL
+df$Little.Application.Received <- NULL
+df$Little.Moved.to.RTBM.in.MF <- NULL
+df$Little.Mailing.Address.Census.Block.Group <- NULL
+df$Little.Acceptance.Date <- NULL
+df$Big.Home.Census.Block.Group <- NULL
+df$Big.Employer.School.Census.Block.Group <- NULL
+df$Little.Gender <- NULL
+df$Little.Birthdate <- NULL
+df$Little.RTBM.in.Matchforce <- NULL
+df$Little.Interview.Date <- NULL
+df$Big.Acceptance.Date <- NULL
+df$Big.Assessment.Uploaded <- NULL
+df$Big.Days.Interview.to.Match <- NULL
+df$Big.Days.Interview.to.Acceptance <- NULL
+consolidate_counties <- function(county_data, min_frequency = 50) {
+  consolidated <- county_data
+  county_counts <- table(county_data[county_data != ""])
+  rare_counties <- names(county_counts[county_counts < min_frequency])
+  consolidated[consolidated %in% rare_counties] <- "Other"
+  # Convert to factor with meaningful levels
+  consolidated <- factor(consolidated)
+  
+  return(consolidated)
+}
+
+df$County_Factor <- consolidate_counties(df$Big.County)
+summary(df$County_Factor)
+df$Big.County <- NULL
+# Function to categorize text fields based on keywords
+categorize_text <- function(text_vector, category_rules, default_category = "Other") {
+  result <- rep(default_category, length(text_vector))
+  
+  if (any(is.na(text_vector))) {
+    result[is.na(text_vector)] <- NA
+  }
+  
+  text_vector <- tolower(trimws(text_vector))
+  
+  for (category_name in names(category_rules)) {
+    keywords <- category_rules[[category_name]]
+    
+    # Check if any keyword appears in each entry
+    match_indices <- sapply(text_vector, function(text) any(grepl(paste(keywords, collapse = "|"), text, ignore.case = TRUE)))
+    
+    # Assign the category where matches occur
+    result[match_indices] <- category_name
+  }
+  
+  return(factor(result))
+}
+
+# Define category rules for each text field
+closure_reason_rules <- list(
+  "Scheduling_Issues" = c("schedule", "time", "availability", "busy", "time constraint"),
+  "Relationship_Problems" = c("relationship", "conflict", "disagree", "personal", "not compatible", "incompatible", "lost contact", "lost interest"),
+  "Relocation" = c("move", "moved", "relocation", "relocate", "different city", "different state"),
+  "Family_Issues" = c("family", "parent", "guardian", "parental"),
+  "School_Issues" = c("school", "academic", "education", "grade", "graduated", "graduate"),
+  "Health_Issues" = c("health", "illness", "medical", "sick", "disease", "covid", "deceased"),
+  "Behavior_Issues" = c("behavior", "conduct", "attitude", "disciplin"),
+  "Program_Requirements" = c("requirement", "qualify", "eligibility", "criteria", "guideline", "infraction", "expectations", "challenges"),
+  "Success" = c("success", "successful")
+)
+
+occupation_rules <- list(
+  "Business_Finance" = c("account", "financ", "budget", "analyst", "bank", "economic", "market", "business", "consultant", "insurance", "entrepreneur"),
+  "Education" = c("teach", "professor", "instructor", "education", "academic", "school", "college", "university"),
+  "Healthcare" = c("doctor", "nurse", "medical", "health", "dental", "therapist", "clinic", "hospital", "coach"),
+  "Technology" = c("software", "developer", "engineer", "IT", "computer", "tech", "program", "web", "data"),
+  "Legal" = c("lawyer", "attorney", "legal", "law", "judge", "paralegal"),
+  "Arts_Media" = c("artist", "design", "writer", "media", "journalist", "creative", "music", "film", "arts"),
+  "Service_Industry" = c("retail", "sales", "service", "hospitality", "restaurant", "customer", "child"),
+  "Trades_Labor" = c("construct", "mechanic", "carpenter", "electric", "plumb", "repair", "builder", "labor"),
+  "Student" = c("student", "graduate", "undergrad"),
+  "Unknown" = c("unknown"),
+  "Retired" = c("retire")
+)
+
+df$Closure_Reason_Category <- categorize_text(df$Closure.Reason, closure_reason_rules)
+df$Occupation_Category <- categorize_text(df$Big.Occupation, occupation_rules)
+summary(df$Closure_Reason_Category)
+summary(df$Occupation_Category)
+df$Closure.Reason <- NULL
+df$Big.Occupation <- NULL
+df$Big.Days.Acceptance.to.Match <- abs(df$Big.Days.Acceptance.to.Match)
+
+# Sort the original DataFrame in place
+df <- df[order(df$Match.Activation.Date), ]
+# Create a factor variable with two levels
+df$Big.Enrollment..Record.Type <- factor(
+  ifelse(df$Big.Enrollment..Record.Type == "CB Volunteer Enrollment", 
+         "CB Volunteer Enrollment", 
+         "Others")
+)
+# Create new categorical variable from Big.Contact..Marital.Status
+df$Big.Contact..Marital.Status <- factor(
+  case_when(
+    df$Big.Contact..Marital.Status == "Single" ~ "Single",
+    !is.na(df$Big.Contact..Marital.Status) ~ "Not Single",
+    TRUE ~ NA_character_
+  ),
+  levels = c("Single", "Not Single")
+)
+df$Stage <- ifelse(df$Stage == "Closed", 1, 0)
+```
+
+
+```{r}
+# Function to order completion dates within each match ID group
+arrange_dates_by_match <- function(data) {
+  
+  # Group by Match ID and arrange by completion date
+  ordered_data <- data %>%
+    group_by(Match.ID.18Char) %>%
+    arrange(Completion.Date, .by_group = TRUE) %>%
+    ungroup()
+  
+  return(ordered_data)
+}
+
+df <- arrange_dates_by_match(df)
+```
+
+```{r}
+head(df)
+```
+
+## Looking at df$'Match.Support.Contact.Notes'
+```{r}
+format_string <- function(input_string) {
+  formatted_string <- gsub("(Question:|Answer:)", "\n\\1", input_string)
+  formatted_string <- gsub("(Question:|Answer:)", "\\1\n", formatted_string)
+  return(formatted_string)
+}
+
+cat(format_string(df$`Match.Support.Contact.Notes`[1:4]))
+```
+```{r}
+library(tidyverse)
+library(tidytext)
+library(stringr)
+
+# Fix the extract_qa function to ensure it returns properly named columns
+extract_qa <- function(text) {
+  if(is.na(text) || text == "") return(tibble(category = character(0), answer = character(0)))
+  
+  # Split by "Question:" to get all Q&A sections
+  sections <- str_split(text, "Question:\\s*")[[1]]
+  sections <- sections[sections != ""]  # Remove empty sections
+  
+  result <- tibble(category = character(), answer = character())
+  
+  for(section in sections) {
+    # Extract category and answer
+    parts <- str_split(section, "\\s*Answer:\\s*")[[1]]
+    
+    if(length(parts) == 2) {
+      category <- trimws(parts[1])
+      answer <- trimws(parts[2])
+      
+      # Only include if category is 40 characters or less
+      if(nchar(category) <= 40) {
+        # Add to result
+        result <- bind_rows(result, tibble(
+          category = category,
+          answer = answer
+        ))
+      }
+    }
+  }
+  
+  # Return an empty tibble with correct columns if no valid QA pairs were found
+  if(nrow(result) == 0) {
+    return(tibble(category = character(0), answer = character(0)))
+  }
+  
+  return(result)
+}
+
+qa_data <- df %>%
+  mutate(row_id = row_number()) %>% 
+  rowwise() %>%
+  mutate(qa_pairs = list(extract_qa(Match.Support.Contact.Notes))) %>%
+  ungroup()
+
+if(any(sapply(qa_data$qa_pairs, function(x) nrow(x) > 0))) {
+  qa_data <- qa_data %>%
+    unnest(qa_pairs, keep_empty = TRUE) %>%
+    select(Match.ID.18Char, Completion.Date, row_id, category, answer, Match.Length, Stage)  #
+} else {
+  qa_data <- tibble(
+    Match.ID.18Char = character(0),
+    Completion.Date = as.Date(character(0)),
+    row_id = integer(0),
+    category = character(0),
+    answer = character(0),
+    Match.Length = numeric(0),
+    Stage = character(0)
+  )
+}
+
+qa_data %>%
+  filter(!(answer %in% c(".", "na", "n/a", "NA", "N/A", "x", "X", "xx", "XX", "..")) & 
+           !str_detect(answer, "^\\s*\\.\\s*$") & 
+           !str_detect(tolower(answer), "^\\s*n/?a\\s*$") &
+           !str_detect(answer, "^\\s*x+\\s*$") &  # Any number of x's
+           !str_detect(answer, "^\\s*\\.+\\s*$"))
+
+print(qa_data)
+```
+
+```{r}
+table(qa_data$category)
+```
+
+
+
+Category based analysis:
+```{r}
+remove_only_hyphen_comma <- function(df) {
+  df %>%
+    filter(!(str_detect(tolower(answer), "^\\s*[-,\\.xXn/a]+\\s*$")))  
+}
+
+# removed_rows <- qa_data %>% INVESTIGATE MISSING VALUES
+#   filter(str_detect(tolower(answer), "^\\s*[-,\\.xXn/a]+\\s*$"))
+
+qa_data2 <- qa_data %>%
+  remove_only_hyphen_comma()
+
+# Create separate dataframes for each question category
+activities_data <- qa_data %>% 
+  filter(str_detect(category, "Activities:")) %>%
+  remove_only_hyphen_comma()
+
+safety_data <- qa_data %>%
+  filter(str_detect(category, "Child Safety:")) %>%
+  remove_only_hyphen_comma()
+
+development_data <- qa_data %>%
+  filter(str_detect(category, "Child Development:")) %>%
+  remove_only_hyphen_comma()
+
+parent_volunteer_concerns <- qa_data %>%
+  filter(str_detect(category, "Parent/Volunteer Concerns:")) %>%
+  remove_only_hyphen_comma()
+
+MSS_Notes <- qa_data %>%
+  filter(str_detect(category, "MSS Notes:")) %>%
+  remove_only_hyphen_comma() %>%
+  rename(mss_notes = answer)
+
+relationshipBBBS_data <- qa_data %>%
+  filter(str_detect(category, "Relationship with BBBS:")) %>%
+  remove_only_hyphen_comma()
+
+# Add new feature - number of logs? or number of logs/time with match
+# Add new feature for each log - lengt - does that matter? 
+# Deep learning on the text? compared to match length?
+
+```
+
+```{r}
+# Print the removed rows
+# print(removed_rows)
+# qa_data
+# qa_data2
+# add a record to df -> number of completed logs? -> number of missing logs? proportion?
+# then look at sentiment analysis - key words, unsupervised learning
+```
+
+
+```{r}
+# Adding total count columns
+non_empty_logs <- qa_data2 %>%
+  group_by(Match.ID.18Char) %>%
+  summarise(num_logs = n())
+
+total_logs <- qa_data %>%
+  group_by(Match.ID.18Char) %>%
+  summarise(total_logs = n())
+
+df <- df %>%
+  left_join(non_empty_logs, by = "Match.ID.18Char") %>%
+  left_join(total_logs, by = "Match.ID.18Char") %>%
+  mutate(prop_logs = num_logs / total_logs)
+
+df <- df %>%
+  mutate(
+    num_logs = replace_na(num_logs, 0),
+    prop_logs = replace_na(prop_logs, 0)
+  )
+```
+
+
+
+Comparing match length of missing rows to main df
+```{r}
+investigated_rows <- removed_rows %>%
+  select(Match.ID.18Char, Completion.Date) %>%  # Keep only necessary columns for the join
+  left_join(
+    df %>%
+      select(Match.ID.18Char, Completion.Date, Match.Support.Contact.Notes, Stage, Match.Length),  # Select the relevant columns from df
+    by = c("Match.ID.18Char", "Completion.Date"),
+    suffix = c("_removed", "_main")
+  )
+
+qa_data <- qa_data %>%
+   mutate(has_missing_data = Match.ID.18Char %in% investigated_rows$Match.ID.18Char)
+t.test(Match.Length ~ has_missing_data, data = qa_data)
+```
+Low p-value indicates there is a statistically discernible difference of match lengths between matches with missing logs and of those without missing logs. Those with missing logs tend to have between -7.4 and -6.8 shorter match lengths. Maybe something to look at. (prop logs)
+
+Sentiment Analysis: 
+```{r}
+library(tidytext)
+library(textdata)
+
+# Add sentiment scores to answers
+sentiment_data <- qa_data %>%
+  # Keep the original answer before tokenizing
+  mutate(original_answer = answer) %>%
+  unnest_tokens(word, answer) %>%
+  anti_join(stop_words) %>%
+  inner_join(get_sentiments("bing")) %>%
+  # Group by all relevant columns including original_answer
+  group_by(Match.ID.18Char, Completion.Date, category, original_answer, sentiment) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  # Spread sentiment but keep original_answer
+  pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>%
+  mutate(sentiment_score = positive - negative)
+
+# Average sentiment by category
+avg_sentiment_by_category <- sentiment_data %>%
+  group_by(category) %>%
+  dplyr::summarize(avg_sentiment = mean(sentiment_score, na.rm = TRUE))
+
+# Visualize sentiment by category
+ggplot(avg_sentiment_by_category, aes(x = reorder(category, avg_sentiment), y = avg_sentiment)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Average Sentiment Score by Category", x = "Category", y = "Sentiment Score")
+
+qa_data <- qa_data %>%
+  left_join(
+    sentiment_data %>% select(Match.ID.18Char, Completion.Date, category, negative, positive, sentiment_score),
+    by = c("Match.ID.18Char", "Completion.Date", "category")
+  )
+
+```
+
+```{r}
+net_sentiment_by_match_date <- sentiment_data %>%
+  group_by(Match.ID.18Char, Completion.Date) %>%
+  summarise(
+    net_sentiment_score = sum(positive - negative, na.rm = FALSE),
+    .groups = "drop"
+  )
+
+# First join the data
+df <- df %>%
+  left_join(
+    net_sentiment_by_match_date,
+    by = c("Match.ID.18Char", "Completion.Date")
+  )
+
+df$net_sentiment_score[is.na(df$net_sentiment_score)] <- 0
+```
+
+```{r}
+# for python deep learning?
+write.csv(qa_data, "qa_data.csv")
+```
+
+Topic Modelling:
+```{r}
+library(topicmodels)
+library(tm)
+
+# Prepare corpus for topic modeling
+answer_corpus <- qa_data %>%
+  select(Match.ID.18Char, category, answer) %>%
+  mutate(doc_id = paste(Match.ID.18Char, category, sep = "_"))
+
+# Create document-term matrix
+answer_dtm <- answer_corpus %>%
+  unnest_tokens(word, answer) %>%
+  anti_join(stop_words) %>%
+  count(doc_id, word) %>%
+  cast_dtm(doc_id, word, n)
+
+# Run LDA model (adjust k based on your domain knowledge) - UNSUPERVISED LEARNING
+lda_model <- LDA(answer_dtm, k = 5, control = list(seed = 8080))
+lda_topics <- tidy(lda_model, matrix = "beta")
+
+# Top terms by topic
+top_terms <- lda_topics %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  arrange(topic, -beta)
+```
+
+
+Relationship Progression Analysis:
+```{r}
+match_dates <- qa_data %>%
+  group_by(Match.ID.18Char) %>%
+  summarize(first_contact = min(Completion.Date),
+            last_contact = max(Completion.Date),
+            duration_days = as.numeric(last_contact - first_contact),
+            num_contacts = n_distinct(Completion.Date))
+
+# Track relationship development over time
+relationship_progression <- qa_data %>%
+  filter(category == "Child/Volunteer Relationship development:") %>%
+  arrange(Match.ID.18Char, Completion.Date) %>%
+  group_by(Match.ID.18Char) %>%
+  mutate(contact_number = dense_rank(Completion.Date),
+         days_since_first = as.numeric(Completion.Date - min(Completion.Date)))
+
+# Sentiment over time in relationship
+relationship_sentiment <- sentiment_data %>%
+  filter(category == "Child/Volunteer Relationship development:") %>%
+  arrange(Match.ID.18Char, Completion.Date) %>%
+  group_by(Match.ID.18Char) %>%
+  mutate(contact_number = dense_rank(Completion.Date),
+         days_since_first = as.numeric(Completion.Date - min(Completion.Date)))
+
+# Visualize relationship sentiment progression
+ggplot(relationship_sentiment, aes(x = days_since_first, y = sentiment_score)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "loess") +
+  theme_minimal() +
+  labs(title = "Relationship Sentiment Over Time", 
+       x = "Days Since First Contact", 
+       y = "Sentiment Score")
+```
+
+Activity Frqeuency Analysis:
+```{r}
+activity_keywords <- c("homework", "game", "art", "craft", "paint", "gym", 
+                      "sport", "read", "book", "outdoor", "visit", "college", 
+                      "play", "talk", "discuss")
+
+activity_mentions <- qa_data %>%
+  filter(category == "Activities:") %>%
+  mutate(text_lower = tolower(answer)) %>%
+  rowwise() %>%
+  mutate(activities = list(activity_keywords[str_detect(text_lower, activity_keywords)])) %>%
+  unnest(activities) %>%
+  count(activities, sort = TRUE)
+
+# Visualize most common activities
+ggplot(head(activity_mentions, 10), aes(x = reorder(activities, n), y = n)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Most Frequent Activities", x = "Activity", y = "Frequency")
+```
+

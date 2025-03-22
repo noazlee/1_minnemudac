@@ -526,3 +526,85 @@ par(mfrow=c(1,2))
 plot(flexAFT, type="cumhaz", sub="cumulative hazard for lognormal AFT")
 plot(flexAFT, type="hazard")
 par(mfrow=c(1,1))
+
+
+
+# TEXT ANALYSIS
+
+# If you want to connect the text analysis with your survival analysis
+# Create features based on text content
+
+# 6. SURVIVAL ANALYSIS FOR MATCH LENGTH
+library(survival)
+
+# Create a dataset for survival analysis
+# First, determine which matches are ongoing vs. closed
+current_date <- max(qa_data$Completion.Date) + 30  # Assuming last record date plus buffer
+
+survival_data <- match_dates %>%
+  mutate(
+    is_ongoing = (last_contact > (current_date - 90)),  # Assuming match is ongoing if contact within last 90 days
+    status = ifelse(is_ongoing, 0, 1)  # 0 = censored (ongoing), 1 = event (ended)
+  )
+
+# Create survival object
+surv_obj <- Surv(time = survival_data$duration_days, event = survival_data$status)
+
+# Fit basic survival model
+km_fit <- survfit(surv_obj ~ 1)
+
+# Plot Kaplan-Meier curve
+plot(km_fit, xlab = "Days", ylab = "Survival Probability", 
+     main = "Kaplan-Meier Survival Curve for Match Duration")
+
+# 7. FACTORS AFFECTING MATCH DURATION
+# Join sentiment and activity data with match data for Cox regression
+match_features <- survival_data %>%
+  left_join(
+    sentiment_data %>%
+      group_by(Match.ID.18Char) %>%
+      summarize(avg_sentiment = mean(sentiment_score, na.rm = TRUE))
+  ) %>%
+  left_join(
+    qa_data %>%
+      filter(category == "Activities:") %>%
+      group_by(Match.ID.18Char) %>%
+      summarize(num_activities = n_distinct(row_id))
+  )
+
+# Cox proportional hazards model
+cox_model <- coxph(Surv(duration_days, status) ~ avg_sentiment + num_activities + num_contacts, 
+                   data = match_features)
+
+summary(cox_model)
+
+# 8. PREDICTIVE MODEL FOR MATCH SUCCESS
+# Define "successful" matches (e.g., lasted >1 year)
+success_data <- match_features %>%
+  mutate(
+    is_successful = (duration_days > 365 | is_ongoing & duration_days > 180),
+    sentiment_positive = avg_sentiment > 0,
+    high_engagement = num_contacts > median(num_contacts, na.rm = TRUE)
+  )
+
+# Logistic regression model
+logit_model <- glm(is_successful ~ avg_sentiment + num_activities + num_contacts,
+                   family = binomial, data = success_data)
+
+summary(logit_model)
+
+Interpretation & Recommendations
+  Category Analysis: Identify which aspects of the mentoring relationship get the most attention in reports.
+Sentiment Analysis: Track emotional tone in different categories. High positive sentiment in "Child/Volunteer Relationship development" likely indicates successful matches.
+Topic Modeling: Discover common themes in mentor-mentee interactions that might not be captured by predefined categories.
+Relationship Progression: Analyze how relationship quality develops over time. Look for patterns in successful vs. unsuccessful matches.
+Activity Analysis: Identify which activities are most common and which are associated with longer-lasting matches.
+Survival Analysis: Determine the typical lifecycle of matches and identify critical periods when matches are most likely to end.
+Factor Analysis: Determine which measurable factors most strongly predict match longevity and success.
+Next Steps
+Refine models based on initial results
+Create a dashboard for ongoing monitoring
+Develop early warning system for at-risk matches
+Design intervention strategies based on predictive factors
+Implement A/B testing of different support approaches
+This comprehensive analysis should provide valuable insights into what makes mentoring relationships successful and help you develop strategies to improve match duration and quality.

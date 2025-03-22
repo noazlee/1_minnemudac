@@ -329,7 +329,6 @@ arrange_dates_by_match <- function(data) {
   return(ordered_data)
 }
 
-# Example usage with your match_data
 df <- arrange_dates_by_match(df)
 ```
 
@@ -417,7 +416,6 @@ match_summary <- match_summary %>%
   left_join(program_type_dummies, by = "row_id") %>%
   left_join(county_dummies, by = "row_id") %>%
   select(-row_id) 
-
 
 ```
 
@@ -776,3 +774,153 @@ probplot(match_summary$Final_Match_Length, "qgamma", shape=1)
 ```
 
 ### Confidence intervals and Differential Plots
+```{r}
+library(rms)
+fit <- npsurv(recsurv~match_summary$Has_Interests)
+survplot(fit)
+```
+```{r}
+survdiffplot(fit)
+# Has interest
+survdiff(recsurv ~ match_summary$Has_Interests, rho=0)
+survdiff(recsurv ~ match_summary$Has_Interests, rho=1)
+```
+```{r}
+head(match_summary)
+```
+
+
+```{r}
+survdiff(recsurv ~ match_summary$Program_Type.x, rho=1)
+survdiff(recsurv ~ match_summary$Big_Gender.x, rho=1)
+survdiff(recsurv ~ match_summary$Has_Proximity, rho=1)
+survdiff(recsurv ~ match_summary$Ethnicity_Match, rho=1)
+survdiff(recsurv ~ match_summary$County.x, rho=1)
+```
+
+## Cox Model
+```{r}
+fit <- coxph(recsurv~match_summary$loggedAge)
+fit
+cox.zph(fit)
+plot(cox.zph(fit))
+res_martingale<-residuals(fit, type="martingale")
+scatter.smooth(match_summary$Big_Age,res_martingale)
+```
+
+```{r}
+fit <- coxph(recsurv~match_summary$Has_Interests)
+fit
+cox.zph(fit)
+plot(cox.zph(fit))
+res_martingale<-residuals(fit, type="martingale")
+scatter.smooth(match_summary$Big_Age,res_martingale)
+```
+
+```{r}
+fit <- coxph(recsurv ~ strata(Program_Type.x) + match_summary$Personality_Compatibility, data=match_summary)
+fit
+cox.zph(fit)
+plot(cox.zph(fit))
+res_martingale<-residuals(fit, type="martingale")
+scatter.smooth(match_summary$Big_Age,res_martingale)
+```
+
+```{r}
+#no interaction, no stratification
+library(MASS)
+# Create a complete dataset with all variables you plan to use
+complete_data <- match_summary[complete.cases(match_summary[, c("Has_Interests", 
+                                                              "Has_Proximity", 
+                                                              "loggedAge", 
+                                                              "Has_Challenges", 
+                                                              "Personality_Compatibility", 
+                                                              "Big_Gender.x", 
+                                                              "Ethnicity_Match")]), ]
+
+surv_obj <- Surv(complete_data$Final_Match_Length, complete_data$Is_Closed)
+coxbasemodel <- coxph(surv_obj ~ Has_Interests, data = complete_data)
+no_I_no_S <- stepAIC(coxbasemodel, 
+                     direction = "both", 
+                     scope = list(lower = ~1,
+                                upper = ~Has_Interests + Has_Proximity + 
+                                        loggedAge + Has_Challenges + 
+                                        Personality_Compatibility + 
+                                        Big_Gender.x + Ethnicity_Match),
+                     data = complete_data)
+```
+```{r}
+no_I_fit<-coxph(recsurv~ match_summary$Has_Interests + match_summary$loggedAge + match_summary$Personality_Compatibility + match_summary$Has_Proximity +strata(match_summary$Program_Type.x))
+no_I_fit
+cox.zph(no_I_fit)
+plot(cox.zph(no_I_fit))
+```
+```{r}
+no_I_no_S$loglik
+no_I_fit$loglik
+```
+
+```{r}
+res_martingale<-residuals(no_I_fit, type="martingale")
+res_dfbetas<-residuals(no_I_fit, type="dfbetas")
+res_score<-residuals(no_I_fit, type="score")
+res_deviance<-residuals(no_I_fit, type="deviance")
+res_schoenfeld<-residuals(no_I_fit, type="schoenfeld")
+res_dfbeta<-residuals(no_I_fit, type="dfbeta")
+res_scaledsch<-residuals(no_I_fit, type="scaledsch")
+res_partial<-residuals(no_I_fit, type="partial")
+
+scatter.smooth(match_summary$loggedTime,res_martingale)
+scatter.smooth(match_summary$loggedTime,res_deviance)
+```
+
+
+```{r}
+res_cox_snell=match_summary$Is_Closed-res_martingale
+
+fit_cs=survfit(Surv(res_cox_snell,match_summary$Is_Closed)~1)
+Htilde=cumsum(fit_cs$n.event/fit_cs$n.risk)
+plot(fit_cs$time,Htilde,type='s',col='blue')
+abline(0,1,col='red',lty=2)
+```
+
+```{r}
+c_index <- concordance(no_I_fit)$concordance
+c_index
+```
+
+## AFT model
+```{r}
+surv_obj <- Surv(match_summary$Final_Match_Length, match_summary$Is_Closed)
+
+fit_exponential <- survreg(surv_obj ~ 1, dist = "lognormal")
+
+# Fit AFT model (note: strata() doesn't work in parametric models like survreg)
+aftmodel <- survreg(surv_obj ~ 
+                   match_summary$Has_Interests + 
+                   match_summary$loggedAge + 
+                   match_summary$Personality_Compatibility + 
+                   match_summary$Has_Proximity + 
+                   match_summary$Program_Type.x, 
+                   dist = "lognormal")
+
+# Flexible parametric model
+library(flexsurv)
+flexAFT <- flexsurvreg(surv_obj ~ 
+                      match_summary$Has_Interests + 
+                      match_summary$loggedAge + 
+                      match_summary$Personality_Compatibility + 
+                      match_summary$Has_Proximity + 
+                      match_summary$Program_Type.x, 
+                      dist = "lognormal")
+
+# Create plots
+plot(flexAFT, type = "survival")
+par(mfrow = c(1, 2))
+plot(flexAFT, type = "cumhaz", sub = "cumulative hazard for exponential AFT")
+plot(flexAFT, type = "hazard")
+par(mfrow = c(1, 1))
+```
+
+
+
