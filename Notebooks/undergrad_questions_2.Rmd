@@ -2203,6 +2203,118 @@ consolidated_df <- consolidated_df %>%
 consolidated_df
 ```
 
+Log Cadence:
+```{r}
+log_cadence <- df2 %>%
+  mutate(Completion.Date = as.Date(Completion.Date)) %>%
+  group_by(Match.ID.18Char) %>%
+  arrange(Match.ID.18Char, Completion.Date) %>%
+  mutate(
+    days_since_last_log = as.numeric(Completion.Date - lag(Completion.Date))
+  ) %>%
+  # Calculate metrics (skipping the first row of each group which has NA for days_since_last_log)
+  summarize(
+    # Average time between logs in days
+    avg_days_between_logs = mean(days_since_last_log, na.rm = TRUE),
+    
+    # Standard deviation of time between logs
+    sd_days_between_logs = sd(days_since_last_log, na.rm = TRUE),
+    
+    log_count = n()
+  ) %>%
+  mutate(
+    # If there's only one log, set metrics to NA since cadence can't be calculated
+    avg_days_between_logs = ifelse(log_count <= 1, NA, avg_days_between_logs),
+    sd_days_between_logs = ifelse(log_count <= 1, NA, sd_days_between_logs),
+    
+    # If calculations resulted in NaN (e.g., all differences were NA), set to NA
+    avg_days_between_logs = ifelse(is.nan(avg_days_between_logs), NA, avg_days_between_logs),
+    sd_days_between_logs = ifelse(is.nan(sd_days_between_logs), NA, sd_days_between_logs)
+  ) %>%
+  select(Match.ID.18Char, avg_days_between_logs, sd_days_between_logs) %>%
+  ungroup()
+
+consolidated_df <- consolidated_df %>%
+  left_join(log_cadence, by = "Match.ID.18Char")
+
+summary(consolidated_df$avg_days_between_logs)
+summary(consolidated_df$sd_days_between_logs)
+```
+```{r, fig.width=8, fig.height=12}
+# Load required libraries for visualization
+library(ggplot2)
+library(gridExtra)
+library(scales)
+
+# 1. Sentiment volatility vs Match Length
+p1 <- ggplot(consolidated_df, aes(x = sentiment_volatility_sd, y = Match.Length)) +
+  geom_point(alpha = 0.5, color = "steelblue") +
+  geom_smooth(method = "loess", color = "red") +
+  labs(title = "Sentiment Volatility vs Match Length",
+       x = "Sentiment Volatility (Standard Deviation)",
+       y = "Match Length (months)") +
+  theme_minimal()
+
+# 2. Sentiment range vs Match Length
+p2 <- ggplot(consolidated_df, aes(x = sentiment_volatility_range, y = Match.Length)) +
+  geom_point(alpha = 0.5, color = "darkgreen") +
+  geom_smooth(method = "loess", color = "red") +
+  labs(title = "Sentiment Range vs Match Length",
+       x = "Sentiment Range (Max - Min)",
+       y = "Match Length (months)") +
+  theme_minimal()
+
+# 3. Latest sentiment net vs Match Length
+p3 <- ggplot(consolidated_df, aes(x = latest_sentiment_net, y = Match.Length)) +
+  geom_point(alpha = 0.5, color = "purple") +
+  geom_smooth(method = "loess", color = "red") +
+  labs(title = "Latest Sentiment Net vs Match Length",
+       x = "Net of 2 Latest Sentiments",
+       y = "Match Length (months)") +
+  theme_minimal()
+
+# 4. Average days between logs vs Match Length
+p4 <- ggplot(consolidated_df, aes(x = avg_days_between_logs, y = Match.Length)) +
+  geom_point(alpha = 0.5, color = "orange") +
+  geom_smooth(method = "loess", color = "red") +
+  labs(title = "Log Cadence vs Match Length",
+       x = "Average Days Between Logs",
+       y = "Match Length (months)") +
+  theme_minimal() +
+  # Limit x-axis to focus on the main distribution (exclude extreme outliers)
+  xlim(0, quantile(consolidated_df$avg_days_between_logs, 0.95, na.rm = TRUE))
+
+# 5. Standard deviation of days between logs vs Match Length
+p5 <- ggplot(consolidated_df, aes(x = sd_days_between_logs, y = Match.Length)) +
+  geom_point(alpha = 0.5, color = "brown") +
+  geom_smooth(method = "loess", color = "red") +
+  labs(title = "Log Cadence Variability vs Match Length",
+       x = "SD of Days Between Logs",
+       y = "Match Length (months)") +
+  theme_minimal() +
+  # Limit x-axis to focus on the main distribution (exclude extreme outliers)
+  xlim(0, quantile(consolidated_df$sd_days_between_logs, 0.95, na.rm = TRUE))
+
+# Arrange the plots in a grid
+grid.arrange(p1, p2, p3, p4, p5, ncol = 2)
+
+# Calculate correlations
+corr_results <- data.frame(
+  Feature = c("Sentiment Volatility (SD)", "Sentiment Range", "Latest Sentiment Net",
+              "Avg Days Between Logs", "SD Days Between Logs"),
+  Correlation = c(
+    cor(consolidated_df$sentiment_volatility_sd, consolidated_df$Match.Length, use = "pairwise.complete.obs"),
+    cor(consolidated_df$sentiment_volatility_range, consolidated_df$Match.Length, use = "pairwise.complete.obs"),
+    cor(consolidated_df$latest_sentiment_net, consolidated_df$Match.Length, use = "pairwise.complete.obs"),
+    cor(consolidated_df$avg_days_between_logs, consolidated_df$Match.Length, use = "pairwise.complete.obs"),
+    cor(consolidated_df$sd_days_between_logs, consolidated_df$Match.Length, use = "pairwise.complete.obs")
+  )
+)
+
+print(corr_results)
+```
+
+
 Add economic factors:
 ```{r}
 
