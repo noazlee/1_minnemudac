@@ -407,6 +407,16 @@ cat(format_string(df$`Match.Support.Contact.Notes`[1:4]))
 ```
 
 ```{r}
+# View most distinctive words
+print(head(results$distinctive_words, 40))
+
+# Show the plot
+print(results$plot)
+```
+
+
+## Clean here
+```{r}
 library(tidyverse)
 library(tidytext)
 library(textstem)  # For proper lemmatization
@@ -416,9 +426,11 @@ bbbs_stopwords <- c(
   "said", "asked", "question", "answer", "mec", "responded", "shared", "commented",
   "l_first_name", "b_first_name", "little", "big", "kit", "match", "bs", "mc", "ls",
   "child", "volunteer", "safety", "development", "activity", "activities",
-  "relationship", "bbbs", "concern", "note", "log", "meeting", "contact"
+  "relationship", "bbbs", "concern", "note", "log", "meeting", "contact", "time", "check", 
+  "month", "support", "email", "match", "meet", "question", "update", "event", "bcc",
+  "callahan", "schreiber", "mary", "pm", "am", "msc", "mc", "match", "question", "phone", 
+  "talk", "address", "person", "call", "update", "time", "hour", "form", "reach"
 )
-
 # Create a function for properly cleaning and lemmatizing text
 clean_and_lemmatize_notes <- function(notes) {
   # Handle NA or empty strings
@@ -443,20 +455,20 @@ clean_and_lemmatize_notes <- function(notes) {
     # Trim leading/trailing whitespace
     str_trim()
   
-  # Tokenize the text
+  # Tokenize and lemmatize first
   tokens_df <- tibble(text = clean_text) %>%
     unnest_tokens(word, text) %>%
-    # Remove stopwords (both standard and BBBS-specific)
-    anti_join(tibble(word = c(stop_words$word, bbbs_stopwords)), by = "word") %>%
     # Remove short words
-    filter(nchar(word) > 2)
-  
-  # Apply proper lemmatization
-  lemmatized_words <- tokens_df %>%
+    filter(nchar(word) > 2) %>%
+    # Lemmatize words
     mutate(lemma = lemmatize_words(word))
   
+  # Then remove stopwords (both standard and BBBS-specific)
+  filtered_tokens <- tokens_df %>%
+    filter(!(lemma %in% c(stop_words$word, bbbs_stopwords)))
+  
   # Combine the tokens back into a string
-  cleaned_text <- lemmatized_words %>%
+  cleaned_text <- filtered_tokens %>%
     pull(lemma) %>%
     paste(collapse = " ")
   
@@ -467,7 +479,6 @@ clean_and_lemmatize_notes <- function(notes) {
 df$cleaned_notes <- sapply(df$`Match.Support.Contact.Notes`, clean_and_lemmatize_notes)
 
 df
-write.csv(df, "df.csv")
 ```
 
 Features from cleaned text:
@@ -1016,59 +1027,30 @@ library(tidyr)
 
 # Function to analyze words associated with positive sentiment in long matches
 analyze_positive_sentiment_words <- function(df) {
-  # Check if required columns exist
-  required_cols <- c("Match.ID.18Char", "Match.Length", "cleaned_notes", "bing_sentiment_score")
-  missing_cols <- setdiff(required_cols, names(df))
+  # Define the problem words to filter out
+  bbbs_stopwords <- c(
+    "match", "question", "phone", "talk", "address", "person", "call", "update", 
+    "time", "hour", "form", "reach", "plan", "schedule", "outing", "school",
+    "event", "concern"
+  )
   
-  if(length(missing_cols) > 0) {
-    stop(paste("Missing required columns:", paste(missing_cols, collapse=", ")))
+  # Check for the right column
+  if(!"cleaned_notes" %in% names(df)) {
+    stop("cleaned_notes column not found in dataframe")
   }
   
   # First identify long matches
-  # Determine threshold for "long" matches (e.g., > 12 months or top quartile)
-  match_length_summary <- summary(df$Match.Length)
-  cat("Match length summary (months):\n")
-  print(match_length_summary)
-  
-  # Use 12 months or 3rd quartile as threshold for long matches
-  long_threshold <- max(12, match_length_summary["3rd Qu."])
+  long_threshold <- max(12, summary(df$Match.Length)["3rd Qu."])
   cat("Using threshold of", long_threshold, "months for long matches\n")
   
   # Label matches as long or not
   df_with_length <- df %>%
     mutate(is_long_match = Match.Length >= long_threshold)
   
-  # Get unique matches and their length status
-  match_length_status <- df_with_length %>%
-    select(Match.ID.18Char, Match.Length, is_long_match) %>%
-    distinct()
-  
-  # Count long vs short matches
-  long_match_count <- sum(match_length_status$is_long_match)
-  short_match_count <- sum(!match_length_status$is_long_match)
-  
-  cat("Long matches (>=", long_threshold, "months):", long_match_count, "\n")
-  cat("Other matches (<", long_threshold, "months):", short_match_count, "\n")
-  
   # Prepare text data for analysis
-  # First, identify observations with positive sentiment in long matches
   positive_notes <- df_with_length %>%
     filter(is_long_match, bing_sentiment_score > 0, !is.na(cleaned_notes)) %>%
     select(Match.ID.18Char, cleaned_notes, bing_sentiment_score)
-  
-  # For comparison, also get negative sentiment notes in long matches
-  negative_notes <- df_with_length %>%
-    filter(is_long_match, bing_sentiment_score < 0, !is.na(cleaned_notes)) %>%
-    select(Match.ID.18Char, cleaned_notes, bing_sentiment_score)
-  
-  # Also get positive notes in short matches for comparison
-  positive_short_notes <- df_with_length %>%
-    filter(!is_long_match, bing_sentiment_score > 0, !is.na(cleaned_notes)) %>%
-    select(Match.ID.18Char, cleaned_notes, bing_sentiment_score)
-  
-  cat("Positive sentiment notes in long matches:", nrow(positive_notes), "\n")
-  cat("Negative sentiment notes in long matches:", nrow(negative_notes), "\n")
-  cat("Positive sentiment notes in short matches:", nrow(positive_short_notes), "\n")
   
   # Function to tokenize and analyze text
   analyze_text <- function(notes_df, group_label) {
@@ -1081,9 +1063,9 @@ analyze_positive_sentiment_words <- function(df) {
     # Tokenize notes to words
     words <- notes_df %>%
       unnest_tokens(word, cleaned_notes) %>%
-      
       anti_join(stop_words, by = "word") %>%
-      
+      # Also remove custom BBBS stopwords
+      filter(!word %in% bbbs_stopwords) %>%
       filter(!str_detect(word, "^[0-9]+$")) %>%
       # Add group label
       mutate(group = group_label)
@@ -1095,75 +1077,12 @@ analyze_positive_sentiment_words <- function(df) {
     return(word_counts)
   }
   
-  # Analyze each group
+  # Analyze positive notes in long matches
   positive_long_words <- analyze_text(positive_notes, "positive_long")
-  negative_long_words <- analyze_text(negative_notes, "negative_long")
-  positive_short_words <- analyze_text(positive_short_notes, "positive_short")
-  
-  # Combine all word counts for comparison
-  all_word_counts <- bind_rows(
-    positive_long_words,
-    negative_long_words,
-    positive_short_words
-  )
-  
-  # Find distinctive words in positive long matches
-  # These are words more common in positive long matches than in other groups
-  
-  # First, get total word counts for each group
-  group_totals <- all_word_counts %>%
-    group_by(group) %>%
-    summarize(total = sum(n))
-  
-  # Join with word counts to calculate proportions
-  word_proportions <- all_word_counts %>%
-    left_join(group_totals, by = "group") %>%
-    mutate(proportion = n / total)
-  
-  # Spread the data to compare proportions across groups
-  word_comparison <- word_proportions %>%
-    select(group, word, proportion) %>%
-    pivot_wider(
-      names_from = group,
-      values_from = proportion,
-      values_fill = list(proportion = 0)
-    )
-  
-  # Calculate distinctiveness of words in positive long matches
-  distinctive_words <- word_comparison
-  
-  # If we have negative long data, compare to that
-  if("negative_long" %in% names(distinctive_words)) {
-    distinctive_words <- distinctive_words %>%
-      mutate(
-        pos_vs_neg_ratio = (positive_long + 0.0001) / (negative_long + 0.0001)
-      )
-  }
-  
-  # If we have positive short data, compare to that
-  if("positive_short" %in% names(distinctive_words)) {
-    distinctive_words <- distinctive_words %>%
-      mutate(
-        long_vs_short_ratio = (positive_long + 0.0001) / (positive_short + 0.0001)
-      )
-  }
-  
-  # Get most distinctive positive words in long matches
-  # These are words that appear more frequently in positive long matches
-  most_distinctive <- distinctive_words %>%
-    filter(positive_long > 0) %>%
-    arrange(desc(positive_long))
-  
-  if("pos_vs_neg_ratio" %in% names(most_distinctive)) {
-    most_distinctive <- most_distinctive %>%
-      arrange(desc(pos_vs_neg_ratio))
-  }
   
   # Top 30 most frequent words in positive long matches
   top_frequent <- positive_long_words %>%
     slice_head(n = 30)
-  
-  # Create visualizations
   
   # Plot top words by frequency
   freq_plot <- ggplot(top_frequent, aes(x = reorder(word, n), y = n)) +
@@ -1176,47 +1095,14 @@ analyze_positive_sentiment_words <- function(df) {
     ) +
     theme_minimal()
   
-  # Create word cloud of positive words in long matches
-  # Only create if we have wordcloud package
-  if(requireNamespace("wordcloud", quietly = TRUE)) {
-    # Set up plotting device
-    png("positive_words_wordcloud.png", width = 800, height = 600)
-    
-    # Create wordcloud
-    wordcloud(
-      words = positive_long_words$word,
-      freq = positive_long_words$n,
-      min.freq = 5,
-      max.words = 100,
-      random.order = FALSE,
-      colors = brewer.pal(8, "Dark2")
-    )
-    
-    # Close the device
-    dev.off()
-  }
-  
   # Return results
   return(list(
-    long_threshold = long_threshold,
-    positive_long_words = positive_long_words,
-    negative_long_words = negative_long_words,
-    positive_short_words = positive_short_words,
-    distinctive_words = most_distinctive,
     top_frequent = top_frequent,
     plot = freq_plot
   ))
 }
 
 results <- analyze_positive_sentiment_words(df_with_sentiment)
-
-# View most frequent words
-print(results$top_frequent)
-
-# View most distinctive words
-print(head(results$distinctive_words, 20))
-
-# Show the plot
 print(results$plot)
 ```
 
@@ -2699,7 +2585,29 @@ missing_counts <- colSums(is.na(consolidated_df))
 missing_counts[missing_counts > 0]
 ```
 ```{r}
+simple_impute <- function(df) {
+  gender_table <- table(df$Big.Gender)
+  most_common_gender <- names(gender_table)[which.max(gender_table)]
+  df$Big.Gender[is.na(df$Big.Gender)] <- most_common_gender
 
+  occupation_table <- table(df$Occupation_Category)
+  most_common_occupation <- names(occupation_table)[which.max(occupation_table)]
+  df$Occupation_Category[is.na(df$Occupation_Category)] <- most_common_occupation
+  
+  median_logs <- median(df$avg_days_between_logs, na.rm = TRUE)
+  df$avg_days_between_logs[is.na(df$avg_days_between_logs)] <- median_logs
+  
+  sp500_table <- table(df$SP500_Level)
+  most_common_sp500 <- names(sp500_table)[which.max(sp500_table)]
+  df$SP500_Level[is.na(df$SP500_Level)] <- most_common_sp500
+  
+  median_distance <- median(df$Distance_Miles, na.rm = TRUE)
+  df$Distance_Miles[is.na(df$Distance_Miles)] <- median_distance
+  
+  return(df)
+}
+
+consolidated_df <- simple_impute(consolidated_df)
 ```
 
 
@@ -2930,24 +2838,426 @@ coef_table <- coef_table[order(abs(coef_table$Coefficient), decreasing = TRUE), 
 print(coef_table)
 ```
 
+```{r}
+# Load necessary libraries
+library(survival)
+library(flexsurv)
+library(caret)
 
+# Set seed for reproducibility
+set.seed(123)
+
+# Create training/validation split (80/20)
+train_indices <- createDataPartition(consolidated_df$Match.Length, p = 0.8, list = FALSE)
+train_data <- consolidated_df[train_indices, ]
+validation_data <- consolidated_df[-train_indices, ]
+
+# Print dimensions of the datasets
+cat("Training set dimensions:", dim(train_data), "\n")
+cat("Validation set dimensions:", dim(validation_data), "\n")
+
+# Create survival objects
+train_surv <- Surv(time = train_data$Match.Length+1, event = train_data$Stage)
+validation_surv <- Surv(time = validation_data$Match.Length+1, event = validation_data$Stage)
+
+# Train AFT model on training data
+aft_model <- survreg(train_surv ~ Big.Gender + Ethnicity_Match + 
+                    Big.Level.of.Education + log(age_gap_abs + 1) + Program.Type + 
+                    SP500_Level + log(avg_change_density + 1) + has_interests + 
+                    personality_compatibility + has_goals + Occupation_Category + 
+                    latest_sentiment_net + log(avg_days_between_logs + 1) + topic_5_scaled + 
+                    avg_engagement_words + avg_change_words,
+                    data = train_data, dist = "lognormal")
+
+# Print model summary
+summary_model <- summary(aft_model)
+
+# Make predictions on validation set
+predicted_log_times <- predict(aft_model, newdata = validation_data, type = "response")
+
+# Calculate RMSE
+rmse <- sqrt(mean((predicted_log_times - validation_data$Match.Length)^2, na.rm = TRUE))
+cat("RMSE on validation set:", rmse, "\n")
+
+# Calculate additional error metrics
+mae <- mean(abs(predicted_log_times - validation_data$Match.Length), na.rm = TRUE)
+cat("MAE on validation set:", mae, "\n")
+
+# Calculate R-squared
+ss_total <- sum((validation_data$Match.Length - mean(validation_data$Match.Length, na.rm = TRUE))^2, na.rm = TRUE)
+ss_residual <- sum((validation_data$Match.Length - predicted_log_times)^2, na.rm = TRUE)
+r_squared <- 1 - (ss_residual / ss_total)
+cat("R-squared on validation set:", r_squared, "\n")
+
+# Plot actual vs predicted values
+plot(validation_data$Match.Length, predicted_log_times,
+     xlab = "Actual Match Length (months)",
+     ylab = "Predicted Match Length (months)",
+     main = "Actual vs Predicted Match Length",
+     pch = 19, col = "blue", alpha = 0.5)
+abline(0, 1, col = "red", lwd = 2)  # Add 45-degree line
+
+# Examine prediction errors by actual match length
+errors <- predicted_log_times - validation_data$Match.Length
+plot(validation_data$Match.Length, errors,
+     xlab = "Actual Match Length (months)",
+     ylab = "Prediction Error (months)",
+     main = "Prediction Errors by Actual Match Length",
+     pch = 19, col = "blue", alpha = 0.5)
+abline(h = 0, col = "red", lwd = 2)  # Add horizontal line at 0
+
+# Examine predictions by program type
+boxplot(errors ~ validation_data$Program.Type,
+        xlab = "Program Type",
+        ylab = "Prediction Error (months)",
+        main = "Prediction Errors by Program Type")
+abline(h = 0, col = "red", lwd = 2)  # Add horizontal line at 0
+```
+Doesnt seem to be linear
+
+## Gradient Boosting Machine:
+```{r}
+library(gbm)
+library(caret)
+
+param_grid <- expand.grid(
+  n.trees = c(300, 500, 600),
+  interaction.depth = c(5, 7, 9),
+  shrinkage = c(0.01, 0.05, 0.1),
+  n.minobsinnode = c(3, 5, 10)
+)
+
+# Configure trainControl for cross-validation
+cv_control <- trainControl(
+  method = "cv",  # Cross-validation
+  number = 5,     # 5-fold CV
+  verboseIter = TRUE
+)
+
+set.seed(123)
+gbm_grid_search <- train(
+  Match.Length ~ Big.Gender + Ethnicity_Match + Big.Level.of.Education + age_gap_abs +
+    Program.Type + SP500_Level + avg_change_density + has_interests +
+    personality_compatibility + has_goals + Occupation_Category + 
+    latest_sentiment_net + avg_days_between_logs + topic_5_scaled +
+    avg_engagement_words + avg_change_words,
+  data = train_data,
+  method = "gbm",
+  trControl = cv_control,
+  tuneGrid = param_grid,
+  metric = "RMSE",
+  distribution = "gaussian",
+  bag.fraction = 0.8,
+  verbose = FALSE
+)
+
+print(gbm_grid_search)
+print(gbm_grid_search$bestTune)
+
+# Get the best model parameters
+best_n_trees <- gbm_grid_search$bestTune$n.trees
+best_interaction_depth <- gbm_grid_search$bestTune$interaction.depth
+best_shrinkage <- gbm_grid_search$bestTune$shrinkage
+best_n_minobsinnode <- gbm_grid_search$bestTune$n.minobsinnode
+
+cat("Best parameters:\n")
+cat("n.trees:", best_n_trees, "\n")
+cat("interaction.depth:", best_interaction_depth, "\n")
+cat("shrinkage:", best_shrinkage, "\n")
+cat("n.minobsinnode:", best_n_minobsinnode, "\n")
+
+# Train final model with best parameters
+final_gbm <- gbm(
+  Match.Length ~ Big.Gender + Ethnicity_Match + Big.Level.of.Education + age_gap_abs+
+    Program.Type + SP500_Level + avg_change_density + has_interests +
+    personality_compatibility + has_goals + Occupation_Category + 
+    latest_sentiment_net + avg_days_between_logs + topic_5_scaled +
+    avg_engagement_words + avg_change_words + Distance_Miles,
+  data = train_data,
+  distribution = "gaussian",
+  n.trees = best_n_trees,
+  interaction.depth = best_interaction_depth,
+  shrinkage = best_shrinkage,
+  n.minobsinnode = best_n_minobsinnode,
+  bag.fraction = 0.8,
+  train.fraction = 1.0,
+  verbose = FALSE
+)
+
+# Make predictions on validation set
+final_predictions <- predict(final_gbm, newdata = validation_data, n.trees = best_n_trees)
+
+# Calculate final metrics
+final_rmse <- sqrt(mean((final_predictions - validation_data$Match.Length)^2, na.rm = TRUE))
+final_mae <- mean(abs(final_predictions - validation_data$Match.Length), na.rm = TRUE)
+final_ss_total <- sum((validation_data$Match.Length - mean(validation_data$Match.Length, na.rm = TRUE))^2, na.rm = TRUE)
+final_ss_residual <- sum((validation_data$Match.Length - final_predictions)^2, na.rm = TRUE)
+final_r_squared <- 1 - (final_ss_residual / final_ss_total)
+
+cat("\nFinal model performance on validation set:\n")
+cat("RMSE:", final_rmse, "\n")
+cat("MAE:", final_mae, "\n")
+cat("R-squared:", final_r_squared, "\n")
+
+# Variable importance
+var_imp <- summary(final_gbm, n.trees = best_n_trees, plotit = FALSE)
+print(var_imp)
+
+# Plot variable importance
+par(mar = c(5, 10, 4, 2))  # Increase left margin for variable names
+barplot(var_imp$rel.inf, 
+        names.arg = var_imp$var, 
+        horiz = TRUE, 
+        las = 1, 
+        cex.names = 0.7, 
+        col = "steelblue",
+        xlab = "Relative Influence", 
+        main = "Variable Importance")
+
+# Plot actual vs predicted values
+plot(validation_data$Match.Length, final_predictions,
+     xlab = "Actual Match Length (months)",
+     ylab = "Predicted Match Length (months)",
+     main = "Actual vs Predicted Match Length",
+     pch = 19, col = "blue")
+abline(0, 1, col = "red", lwd = 2)  # Add 45-degree line
+
+# Plot error distribution
+errors <- final_predictions - validation_data$Match.Length
+hist(errors, breaks = 30, main = "Distribution of Prediction Errors",
+     xlab = "Prediction Error (months)", col = "lightblue", border = "white")
+abline(v = 0, col = "red", lwd = 2)
+
+# Compare with baseline
+baseline_pred <- rep(mean(train_data$Match.Length), nrow(validation_data))
+baseline_rmse <- sqrt(mean((baseline_pred - validation_data$Match.Length)^2, na.rm = TRUE))
+cat("\nBaseline RMSE (mean prediction):", baseline_rmse, "\n")
+cat("Improvement over baseline: ", round((baseline_rmse - final_rmse) / baseline_rmse * 100, 2), "%\n")
+```
 
 ```{r}
-# crashed my computer
-# library(randomForestSRC)
-# 
-# # Random Survival Forest
-# rsf_model <- rfsrc(Surv(Match.Length, Stage)~ Big.Gender + Ethnicity_Match + 
-#                   Big.Level.of.Education + age_gap_abs + 
-#                   Program.Type + SP500_Level + 
-#                   avg_change_density + has_interests + 
-#                   personality_compatibility + has_goals + 
-#                   Occupation_Category + positive + latest_sentiment_net + 
-#                   avg_days_between_logs + topic_5_scaled + 
-#                   avg_engagement_words + avg_change_words,
-#                   data = consolidated_df, ntree = 100)
-# 
-# # Plot variable importance
-# plot(vimp(rsf_model))
+prediction_comparison <- data.frame(
+  Actual = validation_data$Match.Length,
+  Predicted = final_predictions,
+  Error = final_predictions - validation_data$Match.Length,
+  Abs_Error = abs(final_predictions - validation_data$Match.Length)
+)
+
+predictors <- c("Big.Gender", "Ethnicity_Match", "Big.Level.of.Education", "age_gap_abs",
+               "Program.Type", "SP500_Level", "avg_change_density", "has_interests",
+               "personality_compatibility", "has_goals", "Occupation_Category", 
+               "latest_sentiment_net", "avg_days_between_logs", "topic_5_scaled",
+               "avg_engagement_words", "avg_change_words", "Distance_Miles")
+
+for (predictor in predictors) {
+  if (predictor %in% colnames(validation_data)) {
+    prediction_comparison[[predictor]] <- validation_data[[predictor]]
+  }
+}
+
+# Sort by absolute error to find outliers
+outliers <- prediction_comparison[order(prediction_comparison$Abs_Error, decreasing = TRUE), ]
+head_outliers <- head(outliers, 10)
+
+# Find examples of good predictions
+good_predictions <- prediction_comparison[order(prediction_comparison$Abs_Error), ]
+head_good <- head(good_predictions, 10)
+
+cat("Top 10 Outliers (Worst Predictions):\n")
+print(head_outliers)
+cat("\nTop 10 Accurate Predictions:\n")
+print(head_good)
+
+# Create summary statistics for key variables by prediction error category
+prediction_comparison$error_category <- cut(prediction_comparison$Error, 
+                                          breaks = c(-Inf, -20, -5, 5, 20, Inf),
+                                          labels = c("Large Underestimate", "Small Underestimate", 
+                                                    "Accurate", "Small Overestimate", "Large Overestimate"))
+
+error_summary <- aggregate(prediction_comparison[, c("avg_days_between_logs", "latest_sentiment_net", 
+                                                    "avg_change_density", "age_gap_abs")],
+                          by = list(ErrorCategory = prediction_comparison$error_category),
+                          FUN = function(x) c(mean = mean(x, na.rm = TRUE), 
+                                            median = median(x, na.rm = TRUE)))
+print("\nSummary Statistics by Error Category:")
+print(error_summary)
+
+# Distribution of categorical variables across error categories
+cat("\nProgram Type by Error Category:\n")
+print(table(prediction_comparison$error_category, prediction_comparison$Program.Type))
+
+cat("\nBig Gender by Error Category:\n")
+print(table(prediction_comparison$error_category, prediction_comparison$Big.Gender))
+
+cat("\nHas Interests by Error Category:\n")
+print(table(prediction_comparison$error_category, prediction_comparison$has_interests))
+
+# Example profiles of extreme cases
+cat("\nProfile of Most Underestimated Match:\n")
+most_under_idx <- which.min(prediction_comparison$Error)
+profile_under <- prediction_comparison[most_under_idx, ]
+print(profile_under)
+
+cat("\nProfile of Most Overestimated Match:\n")
+most_over_idx <- which.max(prediction_comparison$Error)
+profile_over <- prediction_comparison[most_over_idx, ]
+print(profile_over)
 ```
+Patterns in Outliers (Worst Predictions):
+Long matches are often underestimated - Five of the ten worst predictions involve underestimating matches that lasted 60+ months
+Communication frequency patterns - Outliers tend to have higher average days between logs (many in the 65-90 day range, with some over 120 days)
+Demographics - No clear pattern in gender or ethnicity matching, but most outliers are in Community programs with High or Medium SP500 levels
+Sentiment patterns - Some of the large errors have significant positive sentiment scores (values like 8, 12, 16, 47)
+
+Patterns in Good Predictions:
+Shorter match lengths - Most of the accurately predicted matches lasted less than 30 months (many under 15 months)
+Mixed communication patterns - Some have frequent communication, others less frequent
+Variable sentiment - Both positive and negative sentiment scores appear in well-predicted matches
+Program distribution - Accurate predictions include both Community and Site-based programs
+
+GBM RMSE: 10.6
+
+## Ridge
+```{r}
+library(glmnet)
+
+x_train <- model.matrix(~ Big.Gender + Ethnicity_Match + Big.Level.of.Education + age_gap_abs +
+                      Program.Type + SP500_Level + avg_change_density + has_interests +
+                      personality_compatibility + has_goals + Occupation_Category + 
+                      latest_sentiment_net + avg_days_between_logs + topic_5_scaled +
+                      avg_engagement_words + avg_change_words + Distance_Miles - 1,
+                      data = train_data)
+
+x_validation <- model.matrix(~ Big.Gender + Ethnicity_Match + Big.Level.of.Education + age_gap_abs +
+                          Program.Type + SP500_Level + avg_change_density + has_interests +
+                          personality_compatibility + has_goals + Occupation_Category + 
+                          latest_sentiment_net + avg_days_between_logs + topic_5_scaled +
+                          avg_engagement_words + avg_change_words + Distance_Miles - 1,
+                          data = validation_data)
+
+y_train <- train_data$Match.Length
+y_validation <- validation_data$Match.Length
+
+alphas <- seq(0, 1, by = 0.1)
+
+# Initialize variables to track the best model
+best_alpha <- NULL
+best_lambda <- NULL
+best_rmse <- Inf
+best_model <- NULL
+
+# Perform grid search for alpha and lambda
+for (alpha_val in alphas) {
+  set.seed(123)  # For reproducibility
+  cv_model <- cv.glmnet(x_train, y_train, alpha = alpha_val, nfolds = 5)
+
+  lambda_min <- cv_model$lambda.min
+  
+  model <- glmnet(x_train, y_train, alpha = alpha_val, lambda = lambda_min)
+  predictions <- predict(model, newx = x_validation)
+  rmse <- sqrt(mean((predictions - y_validation)^2))
+  
+  # Update the best model if this one is better
+  if (rmse < best_rmse) {
+    best_rmse <- rmse
+    best_alpha <- alpha_val
+    best_lambda <- lambda_min
+    best_model <- model
+  }
+  
+  # Print progress
+  cat("Alpha:", alpha_val, "Lambda:", lambda_min, "RMSE:", rmse, "\n")
+}
+
+cat("\nBest Parameters:\n")
+cat("Alpha:", best_alpha, "(0=Ridge, 1=Lasso)\n")
+cat("Lambda:", best_lambda, "\n")
+cat("Best RMSE:", best_rmse, "\n")
+
+# Train final model with best parameters
+final_elastic_net <- glmnet(x_train, y_train, alpha = best_alpha, lambda = best_lambda)
+
+# Get coefficients
+coefficients <- coef(final_elastic_net)
+non_zero_coefs <- coefficients[coefficients[,1] != 0, , drop = FALSE]
+sorted_coefs <- non_zero_coefs[order(abs(non_zero_coefs), decreasing = TRUE), , drop = FALSE]
+
+cat("\nTop 15 coefficients (in order of magnitude):\n")
+print(head(sorted_coefs, 15))
+
+# Make final predictions on validation set
+final_predictions <- predict(final_elastic_net, newx = x_validation)
+
+# Calculate performance metrics
+final_rmse <- sqrt(mean((final_predictions - y_validation)^2))
+final_mae <- mean(abs(final_predictions - y_validation))
+final_r2 <- 1 - sum((y_validation - final_predictions)^2) / sum((y_validation - mean(y_validation))^2)
+
+cat("\nFinal Model Performance:\n")
+cat("RMSE:", final_rmse, "\n")
+cat("MAE:", final_mae, "\n")
+cat("R-squared:", final_r2, "\n")
+
+# Calculate variable importance
+total_weight <- sum(abs(sorted_coefs))
+var_importance <- data.frame(
+  Variable = rownames(sorted_coefs),
+  Coefficient = sorted_coefs[,1],
+  Importance = abs(sorted_coefs[,1]) / total_weight * 100
+)
+
+cat("\nVariable Importance (% of total coefficient weight, top 15):\n")
+print(head(var_importance, 15))
+
+# Plot variable importance for top 15 variables
+top_15 <- head(var_importance, 15)
+par(mar = c(5, 15, 4, 2))  # Increase left margin for variable names
+barplot(top_15$Importance, 
+        names.arg = top_15$Variable, 
+        horiz = TRUE, 
+        las = 1, 
+        cex.names = 0.7, 
+        col = "steelblue",
+        xlab = "Importance (%)", 
+        main = "Variable Importance in Elastic Net Model")
+
+# Plot actual vs predicted
+plot(y_validation, final_predictions, 
+     xlab = "Actual Match Length", 
+     ylab = "Predicted Match Length",
+     main = "Ridge: Actual vs Predicted Values",
+     pch = 19, col = "blue")
+abline(0, 1, col = "red", lwd = 2)
+
+prediction_results <- data.frame(
+  Actual = as.numeric(y_validation),
+  Predicted = as.numeric(final_predictions),
+  stringsAsFactors = FALSE
+)
+
+# Calculate errors after creating the dataframe
+prediction_results$Error <- prediction_results$Predicted - prediction_results$Actual
+prediction_results$Abs_Error <- abs(prediction_results$Error)
+
+# worst predictions
+worst_predictions <- prediction_results[order(prediction_results$Abs_Error, decreasing = TRUE), ]
+head_worst <- head(worst_predictions, 10)
+
+# best predictions
+best_predictions <- prediction_results[order(prediction_results$Abs_Error), ]
+head_best <- head(best_predictions, 10)
+# Display results
+cat("\nTop 10 Worst Predictions:\n")
+print(head_worst)
+
+cat("\nTop 10 Best Predictions:\n")
+print(head_best)
+```
+RMSE: 14.36
+
+
+
+
+## SVR
+
 
