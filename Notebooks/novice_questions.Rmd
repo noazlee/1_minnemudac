@@ -1,0 +1,1077 @@
+---
+title: "MinneMUDAC DS - Novice Questions"
+subtitle: "Noah Lee"
+output:
+  pdf_document: default
+  html_document: default
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r}
+#| include: false
+library(tidyverse)
+library(tidymodels)
+library(naniar)    
+library(dplyr)
+library(ggformula)
+library(ggplot2) 
+library(GGally)
+
+library(lubridate)
+library(ranger)   
+library(workflows) 
+library(recipes) 
+```
+
+Big Brother Big Sisters Twin Cities the largest and oldest youth award-winning mentoring organization in the greater Twin Cities.  Each year, we match up youth (Littles age 8-13) and their families with caring adults (Bigs) who volunteer as mentors.  Through a variety of community-based, school-based, and workplace-based mentoring programs, and together with our community, we want every youth to have a mentor, be affirmed in who they are, and explore who they want to be.
+
+# Question: What are things present in 'successful matches'? - matches ongoing, lasting long or closed 'successfully'?
+
+Preprocessing: (THIS IS STUFF FROM MY PREVIOUS NOTEBOOKS - IGNORE OR LOOK BACK AT IT LATER - MAINLY DELETING IRRELEVANT COLUMNS AND DATA TRANSFORMATION)
+```{r}
+df <- read.csv('../Data/Novice.csv')
+extract_binary_indicators <- function(df) {
+  # Initialize new columns with FALSE (0)
+  interest_categories <- c("has_interests", "personality_compatibility", "has_proximity", 
+                          "has_commitment", "has_experience", "has_preference",
+                          "has_challenges", "has_goals")
+  
+  for (category in interest_categories) {
+    df[[category]] <- FALSE  # Initialize with FALSE for all rows
+  }
+  
+  # Define keywords for each category
+  keywords <- list(
+    has_interests = c("outdoors", "hiking", "biking", "fishing", "camping", "parks", "nature", "gardening", "swimming", "sledding", "horseback riding", "skateboarding", "snowboarding", "ice skating", "picnics", "planting", "rock climbing", "feeding ducks", "flying kites", "sports", "basketball", "football", "soccer", "baseball", "hockey", "bowling", "tennis", "running", "yoga", "Zumba", "gymnastics", "arts", "crafts", "drawing", "painting", "pottery", "sewing", "knitting", "photography", "model cars", "model planes", "creative activities", "acting", "singing", "dancing", "playing musical instruments", "writing","indoor activities", "reading", "cooking", "baking", "board games", "video games", "puzzles", "Lego", "animals", "dogs", "cats", "horses", "pets", "animal care", "learning", "science", "math", "history", "social studies", "STEM projects", "other interests", "fashion", "hair", "nails", "volunteering", "museums", "libraries", "zoos", "movies", "plays"),
+    personality_compatibility = c("outgoing", "talkative", "bubbly", "energetic", "enthusiastic", "charismatic", 
+                                "shy", "reserved", "quiet", "introverted", "soft-spoken", "calm", 
+                                "adventurous", "curious", "exploratory", "open to new things", 
+                                "friendly", "kind", "sweet", "thoughtful", "empathetic", 
+                                "funny", "goofy", "humorous", "light-hearted", 
+                                "mature", "respectful", "responsible", "thoughtful", 
+                                "active", "sporty", "energetic", "athletic", 
+                                "creative", "imaginative", "artistic", "crafty", 
+                                "patient", "calm", "steady", "nurturing"),
+    has_proximity = c("miles", "minutes", "close", "far", "convenient", "driving", "traffic", "commute"),
+    has_commitment = c("long-term", "committed", "consistent", "reliable", "short-term", "temporary", "limited time", "2-4 times a month", "weekly"),
+    has_experience = c("child experience", "nanny", "teacher", "coach", "mentor", "social work", "counseling", "teaching", "overcoming challenges", "mental health"),
+    has_preference= c("age", "younger", "older", "in 20s", "gender", "male", "female", "religion", "Christian", "Catholic", "cultural background", "African American", "Hispanic", "non-smoker", "no guns"),
+    has_challenges = c("behavioral challenges", "ADHD", "unmedicated", "redirection", "mental health", "depression", "anxiety", "PTSD", "family dynamics", "divorce", "strained relationships", "bullying", "picked on", "self-esteem", "academic challenges", "tutoring", "homework help"),
+    has_goals = c("self-esteem", "confidence", "self-image", "leadership", "decision-making", "independence", "academic success", "math", "science", "reading", "social skills", "communication", "making friends", "exploration", "trying new things", "learning new skills")
+  )
+  
+  # Check if Rationale.for.Match column exists in the dataframe
+  if (!"Rationale.for.Match" %in% names(df)) {
+    warning("Column 'Rationale.for.Match' not found in dataframe. No keywords will be extracted.")
+    # Return dataframe with all FALSE values
+    return(df)
+  }
+  
+  # Process each row
+  for (i in 1:nrow(df)) {
+    rationale <- df$Rationale.for.Match[i]
+    
+    # Skip if rationale is NA or empty
+    if (is.na(rationale) || rationale == "") {
+      next
+    }
+    
+    # Check for keywords in each category
+    for (category in names(keywords)) {
+      category_keywords <- keywords[[category]]
+      for (keyword in category_keywords) {
+        if (grepl(keyword, rationale, ignore.case = TRUE)) {
+          df[[category]][i] <- TRUE
+          break  # Once we find a match, no need to check other keywords in this category
+        }
+      }
+    }
+  }
+  
+  # Convert logical columns to factors (0/1)
+  for (category in interest_categories) {
+    df[[category]] <- as.factor(as.integer(df[[category]]))
+  }
+  
+  return(df)
+}
+
+df <- extract_binary_indicators(df)
+df$Match.ID.18Char <- NULL
+df$Little.ID <- NULL
+df$Big.ID <- NULL
+df$Big..Military <- NULL
+df$Big.Employer <- NULL
+df$Closure.Details <- NULL
+df$Big.Open.to.Cross.Gender.Match <- NULL
+df$Big.Contact..Interest.Finder...Sports <- NULL
+df$Big.Contact..Interest.Finder...Places.To.Go <- NULL
+df$Big.Contact..Interest.Finder...Hobbies <- NULL
+df$Big.Contact..Interest.Finder...Entertainment <- NULL
+df$Big.Contact..Interest.Finder...Hobbies <- NULL
+df$Big.Contact..Created.Date <- NULL
+df$Big.Enrollment..Created.Date <- NULL
+df$Little.Contact..Interest.Finder...Sports <- NULL
+df$Little.Contact..Interest.Finder...Outdoors <- NULL
+df$Little.Contact..Interest.Finder...Arts <- NULL
+df$Little.Contact..Interest.Finder...Places.To.Go <- NULL
+df$Little.Contact..Interest.Finder...Hobbies <- NULL
+df$Little.Contact..Interest.Finder...Entertainment <- NULL
+df$Little.Contact..Interest.Finder...Other.Interests <- NULL
+df$Little.Other.Interests <- NULL
+df$Little.Contact..Interest.Finder...Career <- NULL
+df$Little.Contact..Interest.Finder...Personality <- NULL
+df$Little.Contact..Interest.Finder...Three.Wishes <- NULL
+df$Little.Other.Interests <- NULL
+df$Rationale.for.Match <- NULL
+df$Big.County[df$Big.County == ""] <- NA
+df$Match.Activation.Date <- as.Date(df$Match.Activation.Date, format="%Y-%m-%d")
+df$Big.Approved.Date <- as.Date(df$Big.Approved.Date, format="%Y-%m-%d") 
+df$Big.Acceptance.Date <- as.Date(df$Big.Acceptance.Date, format="%Y-%m-%d") 
+df$Match.Closure.Meeting.Date <- as.Date(df$Match.Closure.Meeting.Date, format="%Y-%m-%d") 
+df$Big.Birthdate <- as.Date(df$Big.Birthdate, format="%Y-%m-%d") 
+df$Little.Birthdate <- as.Date(df$Little.Birthdate, format="%Y-%m-%d") 
+df$Little.Interview.Date <- as.Date(df$Little.Interview.Date, format="%Y-%m-%d") 
+df$Little.RTBM.in.MF <- as.Date(df$Little.Interview.Date, format="%Y-%m-%d") 
+#Function to check if Big and Little ethnicities share any keywords
+check_ethnicity_match <- function(df) {
+  # Create a new column to store the matching result
+  df$Ethnicity_Match <- FALSE
+  
+  # Loop through each row
+  for (i in 1:nrow(df)) {
+    # Get the Big and Little race/ethnicity values
+    big_race <- df$Big.Race.Ethnicity[i]
+    little_race <- df$Little.Participant..Race.Ethnicity[i]
+    
+    # Skip if either value is NA
+    if (is.na(big_race) || is.na(little_race)) {
+      df$Ethnicity_Match[i] <- NA
+      next
+    }
+    
+    # Convert to character (in case they're factors)
+    big_race <- as.character(big_race)
+    little_race <- as.character(little_race)
+    
+    # Split strings by semicolons to handle multiple ethnicities
+    big_races <- unlist(strsplit(big_race, ";"))
+    little_races <- unlist(strsplit(little_race, ";"))
+    
+    # Clean up any leading/trailing spaces
+    big_races <- trimws(big_races)
+    little_races <- trimws(little_races)
+    
+    # Check if there's any match
+    match_found <- FALSE
+    for (b in big_races) {
+      for (l in little_races) {
+        # Extract keywords to compare (simplify the comparison)
+        keywords <- c("White", "Black", "Asian", "Hispanic", "Indian", "Alaska", 
+                     "Middle Eastern", "North African", "Other")
+        
+        # Check for each keyword
+        for (keyword in keywords) {
+          if (grepl(keyword, b, ignore.case = TRUE) && 
+              grepl(keyword, l, ignore.case = TRUE)) {
+            match_found <- TRUE
+            break
+          }
+        }
+        if (match_found) break
+      }
+      if (match_found) break
+    }
+    
+    # Assign the result
+    df$Ethnicity_Match[i] <- match_found
+  }
+  
+  return(df)
+}
+
+df <- check_ethnicity_match(df)
+df$Big.Race.Ethnicity <- NULL
+df$Little.Participant..Race.Ethnicity <- NULL
+df$Stage <- factor(ifelse(df$Stage == "Closed", "Closed", "Active"))
+df[df == ""] <- NA
+df$Big.Languages[df$Big.Languages == ""] <- NA
+df$Big.Gender <- factor(df$Big.Gender, 
+                        levels = c("Female", "Male"),
+                        labels = c("Female", "Male"))
+
+df$Program <- as.factor(df$Program)
+df$Program.Type <- as.factor(df$Program.Type)
+df$Big.Level.of.Education <- NULL
+df$Big.Languages <- NULL
+df$Big.Car.Access <- NULL
+df$Big.Contact..Preferred.Communication.Type <- NULL
+df$Big.Contact..Former.Big.Little <- NULL
+df$Big.Contact..Volunteer.Availability <- NULL
+# df$Little.RTBM.Date.in.MF <- NULL
+df$Little.Contact..Language.s..Spoken <- NULL
+df$Little.Acceptance.Date <- NULL
+df$Little.Application.Received <- NULL
+df$Little.Moved.to.RTBM.in.MF <- NULL
+# df$Little.Mailing.Address.Census.Block.Group <- NULL
+df$Little.Acceptance.Date <- NULL
+# df$Big.Home.Census.Block.Group <- NULL
+df$Big.Employer.School.Census.Block.Group <- NULL
+df$Little.Gender <- NULL
+# df$Little.Birthdate <- NULL
+df$Little.RTBM.in.Matchforce <- NULL
+df$Little.Interview.Date <- NULL
+df$Big.Acceptance.Date <- NULL
+df$Big.Assessment.Uploaded <- NULL
+df$Big.Days.Interview.to.Match <- NULL
+df$Big.Days.Interview.to.Acceptance <- NULL
+consolidate_counties <- function(county_data, min_frequency = 50) {
+  consolidated <- county_data
+  county_counts <- table(county_data[county_data != ""])
+  rare_counties <- names(county_counts[county_counts < min_frequency])
+  consolidated[consolidated %in% rare_counties] <- "Other"
+  # Convert to factor with meaningful levels
+  consolidated <- factor(consolidated)
+  
+  return(consolidated)
+}
+
+df$County_Factor <- consolidate_counties(df$Big.County)
+summary(df$County_Factor)
+df$Big.County <- NULL
+# Function to categorize text fields based on keywords
+categorize_text <- function(text_vector, category_rules, default_category = "Other") {
+  result <- rep(default_category, length(text_vector))
+  
+  if (any(is.na(text_vector))) {
+    result[is.na(text_vector)] <- NA
+  }
+  
+  text_vector <- tolower(trimws(text_vector))
+  
+  for (category_name in names(category_rules)) {
+    keywords <- category_rules[[category_name]]
+    
+    # Check if any keyword appears in each entry
+    match_indices <- sapply(text_vector, function(text) any(grepl(paste(keywords, collapse = "|"), text, ignore.case = TRUE)))
+    
+    # Assign the category where matches occur
+    result[match_indices] <- category_name
+  }
+  
+  return(factor(result))
+}
+
+# Define category rules for each text field
+closure_reason_rules <- list(
+  "Scheduling_Issues" = c("schedule", "time", "availability", "busy", "time constraint"),
+  "Relationship_Problems" = c("relationship", "conflict", "disagree", "personal", "not compatible", "incompatible", "lost contact", "lost interest"),
+  "Relocation" = c("move", "moved", "relocation", "relocate", "different city", "different state"),
+  "Family_Issues" = c("family", "parent", "guardian", "parental"),
+  "School_Issues" = c("school", "academic", "education", "grade", "graduated", "graduate"),
+  "Health_Issues" = c("health", "illness", "medical", "sick", "disease", "covid", "deceased"),
+  "Behavior_Issues" = c("behavior", "conduct", "attitude", "disciplin"),
+  "Program_Requirements" = c("requirement", "qualify", "eligibility", "criteria", "guideline", "infraction", "expectations", "challenges"),
+  "Success" = c("success", "successful")
+)
+
+occupation_rules <- list(
+  "Business_Finance" = c("account", "financ", "budget", "analyst", "bank", "economic", "market", "business", "consultant", "insurance", "entrepreneur"),
+  "Education" = c("teach", "professor", "instructor", "education", "academic", "school", "college", "university"),
+  "Healthcare" = c("doctor", "nurse", "medical", "health", "dental", "therapist", "clinic", "hospital", "coach"),
+  "Technology" = c("software", "developer", "engineer", "IT", "computer", "tech", "program", "web", "data"),
+  "Legal" = c("lawyer", "attorney", "legal", "law", "judge", "paralegal"),
+  "Arts_Media" = c("artist", "design", "writer", "media", "journalist", "creative", "music", "film", "arts"),
+  "Service_Industry" = c("retail", "sales", "service", "hospitality", "restaurant", "customer", "child"),
+  "Trades_Labor" = c("construct", "mechanic", "carpenter", "electric", "plumb", "repair", "builder", "labor"),
+  "Student" = c("student", "graduate", "undergrad"),
+  "Unknown" = c("unknown"),
+  "Retired" = c("retire")
+)
+
+df$Closure_Reason_Category <- categorize_text(df$Closure.Reason, closure_reason_rules)
+df$Occupation_Category <- categorize_text(df$Big.Occupation, occupation_rules)
+summary(df$Closure_Reason_Category)
+summary(df$Occupation_Category)
+df$Closure.Reason <- NULL
+df$Big.Occupation <- NULL
+df$Big.Days.Acceptance.to.Match <- abs(df$Big.Days.Acceptance.to.Match)
+
+# Sort the original DataFrame in place
+df <- df[order(df$Match.Activation.Date), ]
+# Create a factor variable with two levels
+df$Big.Enrollment..Record.Type <- factor(
+  ifelse(df$Big.Enrollment..Record.Type == "CB Volunteer Enrollment", 
+         "CB Volunteer Enrollment", 
+         "Others")
+)
+# Create new categorical variable from Big.Contact..Marital.Status
+df$Big.Contact..Marital.Status <- factor(
+  case_when(
+    df$Big.Contact..Marital.Status == "Single" ~ "Single",
+    !is.na(df$Big.Contact..Marital.Status) ~ "Not Single",
+    TRUE ~ NA_character_
+  ),
+  levels = c("Single", "Not Single")
+)
+df$Stage <- ifelse(df$Stage == "Closed", 1, 0)
+```
+
+## Understand and analyze the response variable distributions: Match Length:
+
+```{r}
+summary(df$Match.Length)
+# Histogram to visualize distribution
+hist(df$Match.Length, 
+     main="Distribution of Match Length", 
+     xlab="Match Length (months)", 
+     col="lightblue", 
+     breaks=20)
+
+# Density plot
+plot(density(df$Match.Length), 
+     main="Density Plot of Match Length", 
+     xlab="Match Length (months)")
+
+# Boxplot
+boxplot(df$Match.Length, 
+        main="Boxplot of Match Length", 
+        ylab="Match Length (months)")
+
+stats <- summary(df$Match.Length)
+mean_value <- mean(df$Match.Length)
+q1 <- stats["1st Qu."]
+median_value <- stats["Median"]
+q3 <- stats["3rd Qu."]
+
+text(x = 1.3, y = mean_value, labels = paste("Mean:", round(mean_value, 2)), col = "black")
+text(x = 1.3, y = q1, labels = paste("1Q:", round(q1, 2)), col = "black")
+text(x = 1.3, y = median_value, labels = paste("Median:", round(median_value, 2)), col = "black")
+text(x = 1.3, y = q3, labels = paste("3Q:", round(q3, 2)), col = "black")
+
+# Check for normality
+qqnorm(df$Match.Length)
+qqline(df$Match.Length) # Looks exponentially distributed
+```
+Definitely not normally distributed as expected. Maybe Log transform? Survival analysis?
+
+```{r}
+table(df$Closure_Reason_Category)
+```
+Only 95 defined as successful.
+
+## How do the response variable distributions vary across Program Type?
+
+```{r}
+table(df$Program.Type)
+df$Program.Type[df$Program.Type == "Site Based Plus"] <- NA # too little records to consider
+df$Program.Type <- droplevels(df$Program.Type)
+df_filtered <- df %>% filter(!is.na(Program.Type))
+# Summary statistics by Program Type
+summary_stats <- df %>%
+  group_by(Program.Type) %>%
+  summarise(
+    Mean = mean(Match.Length, na.rm = TRUE),
+    Median = median(Match.Length, na.rm = TRUE),
+    SD = sd(Match.Length, na.rm = TRUE),
+    Q1 = quantile(Match.Length, 0.25, na.rm = TRUE),
+    Q3 = quantile(Match.Length, 0.75, na.rm = TRUE)
+  )
+print(summary_stats)
+
+# Boxplot to visualize distribution of Match.Length by Program.Type
+ggplot(df_filtered, aes(x = Program.Type, y = Match.Length, fill = Program.Type)) +
+  geom_boxplot(na.rm = TRUE) +
+  labs(
+    title = "Distribution of Match Length by Program Type",
+    x = "Program Type",
+    y = "Match Length (months)"
+  ) +
+  theme_bw()
+
+# Density plot to compare distributions
+ggplot(df_filtered, aes(x = Match.Length, fill = Program.Type)) +
+  geom_density(alpha = 0.5, na.rm = TRUE) +
+  labs(
+    title = "Density Plot of Match Length by Program Type",
+    x = "Match Length (months)",
+    y = "Density"
+  ) +
+  theme_bw()
+
+# Violin plot for a more detailed view
+ggplot(df_filtered, aes(x = Program.Type, y = Match.Length, fill = Program.Type)) +
+  geom_violin(na.rm = TRUE) +
+  labs(
+    title = "Violin Plot of Match Length by Program Type",
+    x = "Program Type",
+    y = "Match Length (months)"
+  ) +
+  theme_bw()
+```
+
+```{r}
+# ANOVA test
+anova_result <- aov(Match.Length ~ Program.Type, data = df)
+summary(anova_result)
+
+# Chi-Square Test of Independence for Closure Reason
+chi_square_result <- chisq.test(table(df$Closure_Reason_Category, df$Program.Type))
+print(chi_square_result)
+
+# Kruskal-Wallis test (non-parametric alternative)
+kruskal.test(Match.Length ~ Program.Type, data = df)
+```
+
+Program.Type a significant predictor of Match Length and Closure Reason
+
+## Response distributions over time
+
+```{r}
+ggplot(df, aes(x = Match.Activation.Date, y = Match.Length)) +
+  geom_point(alpha = 0.5, color = "blue") +  # Scatter plot with transparency
+  geom_smooth(method = "loess", color = "red", se = TRUE) +  # Trend line
+  labs(title = "Match Length Over Activation Date",
+       x = "Activation Date",
+       y = "Match Length") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Clearly older matches have an advantage - look into survival analysis
+and Cox potential hazards model.
+
+```{r}
+ggplot(df, aes(x = Match.Activation.Date, fill = Closure_Reason_Category)) +
+  geom_histogram(position = "stack", bins = 30) +
+  labs(
+    title = "Closure Reason Categories by Match Activation Date",
+    x = "Match Activation Date",
+    y = "Count",
+    fill = "Closure Reason"
+  ) +
+  scale_fill_brewer(palette = "Set2") +
+  theme_bw() +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+df_monthly <- df %>%
+  mutate(Month = floor_date(Match.Activation.Date, "month")) %>%
+  group_by(Month, Closure_Reason_Category) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  group_by(Month) %>%
+  mutate(Proportion = Count / sum(Count))
+
+ggplot(df_monthly, aes(x = Month, y = Proportion, fill = Closure_Reason_Category)) +
+  geom_area() +
+  labs(
+    title = "Monthly Proportion of Closure Reasons",
+    x = "Match Activation Date (Monthly)",
+    y = "Proportion",
+    fill = "Closure Reason"
+  ) +
+  scale_fill_brewer(palette = "Set2") +
+  theme_bw() +
+  theme(legend.position = "bottom")
+```
+
+Seems to stay relatively consistent - with a rise in 'NA' values in the
+bottom due to less match closures.
+
+```{r}
+table(df$Stage)
+```
+
+2486 match closures, 789 active matches
+
+```{r}
+str(df)
+```
+
+## What influence do the various Big and/or Little demographic variables have on the response variable distributions?
+
+```{r}
+# Analysis of Big Age vs Match Length
+ggplot(df, aes(x = Big.Age, y = Match.Length, color = factor(Stage, labels = c("Active", "Closed")))) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "loess", color = "blue") +
+  labs(
+    title = "Match Length by Big's Age",
+    x = "Big's Age",
+    y = "Match Length (months)",
+    color = "Stage"  # Legend title
+  ) +
+  theme_bw()
+
+# Age group analysis
+df$Age_Group <- cut(df$Big.Age, 
+                    breaks = c(0, 25, 35, 45, 55, 65, 100),
+                    labels = c("18-25", "26-35", "36-45", "46-55", "56-65", "65+"))
+
+age_summary <- df %>%
+  group_by(Age_Group) %>%
+  summarise(
+    Mean_Length = mean(Match.Length, na.rm = TRUE),
+    Median_Length = median(Match.Length, na.rm = TRUE),
+    Count = n()
+  )
+age_summary
+```
+
+```{r}
+# Big Gender analysis
+gender_summary <- df %>%
+  group_by(Big.Gender) %>%
+  summarise(
+    Mean_Length = mean(Match.Length, na.rm = TRUE),
+    Median_Length = median(Match.Length, na.rm = TRUE),
+    Count = n()
+  )
+gender_summary
+# Box plot of match length by Big's gender
+ggplot(df, aes(x = Big.Gender, y = Match.Length, fill = Big.Gender)) +
+  geom_boxplot() +
+  labs(title = "Match Length by Big's Gender",
+       x = "Gender",
+       y = "Match Length (months)") +
+  theme_bw()
+
+# Statistical test for gender difference
+t.test(Match.Length ~ Big.Gender, data = df)
+```
+Statistically discernable difference in match length and gender. Longer for male bigs.
+
+```{r}
+# Ethnicity match analysis
+ethnicity_summary <- df %>%
+  group_by(Ethnicity_Match) %>%
+  summarise(
+    Mean_Length = mean(Match.Length, na.rm = TRUE),
+    Median_Length = median(Match.Length, na.rm = TRUE),
+    Count = n()
+  )
+ethnicity_summary
+# Box plot for ethnicity match
+ggplot(df %>% filter(!is.na(Ethnicity_Match)), 
+       aes(x = factor(Ethnicity_Match), y = Match.Length, fill = factor(Ethnicity_Match))) +
+  geom_boxplot() +
+  labs(title = "Match Length by Ethnicity Match",
+       x = "Ethnicity Match",
+       y = "Match Length (months)") +
+  scale_x_discrete(labels = c("FALSE" = "No Match", "TRUE" = "Match")) +
+  scale_fill_discrete(name = "Ethnicity Match", labels = c("No Match", "Match")) +
+  theme_bw()
+```
+Statsitically discerinible difference for match length and ethnicity match - longer if same ethnicity.
+
+```{r}
+# Interest and proximity analysis
+interest_summary <- df %>%
+  group_by(has_interests) %>%
+  summarise(
+    Mean_Length = mean(Match.Length, na.rm = TRUE),
+    Median_Length = median(Match.Length, na.rm = TRUE),
+    Count = n()
+  )
+interest_summary
+proximity_summary <- df %>%
+  group_by(has_proximity) %>%
+  summarise(
+    Mean_Length = mean(Match.Length, na.rm = TRUE),
+    Median_Length = median(Match.Length, na.rm = TRUE),
+    Count = n()
+  )
+proximity_summary
+```
+Statistically discernible difference for close distance - longer for closer.
+
+```{r}
+# County analysis
+county_summary <- df %>%
+  group_by(County_Factor) %>%
+  summarise(
+    Mean_Length = mean(Match.Length, na.rm = TRUE),
+    Median_Length = median(Match.Length, na.rm = TRUE),
+    Count = n()
+  ) %>%
+  arrange(desc(Mean_Length))
+county_summary
+# Boxplot for counties
+ggplot(df, aes(x = reorder(County_Factor, Match.Length, FUN = median), 
+               y = Match.Length, fill = County_Factor)) +
+  geom_boxplot() +
+  labs(title = "Match Length by County",
+       x = "County",
+       y = "Match Length (months)") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")
+```
+
+
+```{r}
+# Occupation analysis
+occupation_summary <- df %>%
+  group_by(Occupation_Category) %>%
+  summarise(
+    Mean_Length = mean(Match.Length, na.rm = TRUE),
+    Median_Length = median(Match.Length, na.rm = TRUE),
+    Count = n()
+  ) %>%
+  arrange(desc(Mean_Length))
+occupation_summary
+
+ggplot(df, aes(x = reorder(Occupation_Category, Match.Length, FUN = median), 
+               y = Match.Length, fill = Occupation_Category)) +
+  geom_boxplot() +
+  labs(title = "Match Length by Big's Occupation",
+       x = "Occupation Category",
+       y = "Match Length (months)") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")
+
+```
+Students on average have shorter matches.
+
+
+```{r}
+df_marital <- df %>% filter(!is.na(Big.Contact..Marital.Status))
+marital_summary <- df_marital %>%
+  group_by(Big.Contact..Marital.Status) %>%
+  summarise(
+    Mean_Length = mean(Match.Length, na.rm = TRUE),
+    Median_Length = median(Match.Length, na.rm = TRUE),
+    Count = n()
+  )
+marital_summary
+```
+Of those which are available, not single bigs have longer match lengths - more stability?
+
+## Analysis of closure reasons by demographics
+```{r}
+age_closure <- df %>%
+  filter(!is.na(Age_Group), !is.na(Closure_Reason_Category)) %>%
+  group_by(Age_Group, Closure_Reason_Category) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  group_by(Age_Group) %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+gender_closure <- df %>%
+  filter(!is.na(Big.Gender), !is.na(Closure_Reason_Category)) %>%
+  group_by(Big.Gender, Closure_Reason_Category) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  group_by(Big.Gender) %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+# Visualize closure reasons by gender
+ggplot(gender_closure, aes(x = Big.Gender, y = Percentage, fill = Closure_Reason_Category)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(title = "Closure Reasons by Big's Gender",
+       x = "Gender",
+       y = "Percentage",
+       fill = "Closure Reason") +
+  theme_bw() +
+  theme(legend.position = "right")
+```
+Roughly equal - more family issues for males? more health issues for females?
+
+```{r}
+# Statistical tests for demographic effects on match length
+# ANOVA for County effect
+county_anova <- aov(Match.Length ~ County_Factor, data = df)
+summary(county_anova)
+
+# ANOVA for Occupation effect
+occupation_anova <- aov(Match.Length ~ Occupation_Category, data = df)
+summary(occupation_anova)
+
+# ANOVA for Age Group effect
+age_anova <- aov(Match.Length ~ Age_Group, data = df)
+summary(age_anova)
+
+# Simple regression model
+model <- lm(Match.Length ~ Big.Age + Big.Gender + Program.Type + Ethnicity_Match + 
+             has_interests + has_proximity + County_Factor + Occupation_Category, 
+           data = df %>% filter(!is.na(Ethnicity_Match)))
+summary(model)
+```
+Very poor predictive performance. But many important predictors.
+
+
+## Looking at interests
+```{r}
+df_with_indicators <- df
+summary_indicators <- df_with_indicators %>%
+  summarise(across(c(has_interests, personality_compatibility, has_proximity, 
+                    has_commitment, has_experience, has_preference,
+                    has_challenges, has_goals), 
+                   ~sum(as.integer(as.character(.)) == 1, na.rm = TRUE)))
+summary_indicators
+
+# Calculate correlation with match length
+indicator_correlations <- df_with_indicators %>%
+  select(Match.Length, has_interests, personality_compatibility, has_proximity, 
+         has_commitment, has_experience, has_preference,
+         has_challenges, has_goals) %>%
+  mutate(across(has_interests:has_goals, ~as.numeric(as.character(.)))) %>%
+  cor(use = "pairwise.complete.obs")
+
+print(indicator_correlations["Match.Length", ])
+
+# Visualize the distribution of match length by each indicator
+library(gridExtra)
+```
+
+```{r, fig.width=8, fig.height=12}
+# Function to create box plots
+create_boxplot <- function(df, var) {
+  ggplot(df, aes_string(x = var, y = "Match.Length", fill = var)) +
+    geom_boxplot() +
+    labs(title = paste("Match Length by", var),
+         x = var,
+         y = "Match Length (months)") +
+    theme_bw() +
+    theme(legend.position = "none") +
+    scale_x_discrete(labels = c("0" = "No", "1" = "Yes"))
+}
+
+# Create a list of plots
+plot_list <- lapply(c("has_interests", "personality_compatibility", "has_proximity", 
+                      "has_commitment", "has_experience", "has_preference",
+                      "has_challenges", "has_goals"), 
+                    function(var) create_boxplot(df_with_indicators, var))
+
+# Arrange plots in a grid
+grid.arrange(grobs = plot_list, ncol = 2)
+```
+has_experience not statistically discernible and present in data much.
+
+```{r, fig.width=4, fig.height=4}
+# Analyze the impact of different interest combinations
+df_with_indicators$interest_count <- rowSums(sapply(df_with_indicators[, c("has_interests", 
+                                                                         "personality_compatibility", 
+                                                                         "has_proximity", 
+                                                                         "has_commitment", 
+                                                                         "has_experience", 
+                                                                         "has_preference",
+                                                                         "has_challenges", 
+                                                                         "has_goals")], 
+                                                  function(x) as.integer(as.character(x))))
+
+# Analyze relationship between number of interest categories and match length
+interest_count_summary <- df_with_indicators %>%
+  group_by(interest_count) %>%
+  summarise(
+    Mean_Length = mean(Match.Length, na.rm = TRUE),
+    Median_Length = median(Match.Length, na.rm = TRUE),
+    Count = n()
+  )
+
+print(interest_count_summary)
+
+# Visualize relationship between interest count and match length
+ggplot(df_with_indicators, aes(x = factor(interest_count), y = Match.Length)) +
+  geom_boxplot(fill = "lightblue") +
+  labs(title = "Match Length by Number of Interest Categories Mentioned",
+       x = "Number of Interest Categories",
+       y = "Match Length (months)") +
+  theme_bw()
+
+# Test statistical significance
+interest_model <- lm(Match.Length ~ has_interests + personality_compatibility + has_proximity + 
+                       has_commitment + has_experience + has_preference +
+                       has_challenges + has_goals, data = df_with_indicators)
+summary(interest_model)
+```
+
+## Successful match?
+```{r}
+# A match is successful if:
+# 1. It's active 
+# 2. It has a long duration 
+# 3. Closure reason is "Success"
+
+df$successful_match <- FALSE
+
+# Active matches (no closure date)
+df$successful_match[df$Stage == 0] <- TRUE
+sum(df$successful_match[df$Stage == 0])
+
+# Matches with "Success" as closure reason
+df$successful_match[df$Closure_Reason_Category == "Success"] <- TRUE
+
+# Long duration matches (define long as above the 80th percentile)
+long_duration_threshold <- quantile(df$Match.Length, 0.8, na.rm = TRUE)
+df$successful_match[df$Match.Length > long_duration_threshold & 
+                      !is.na(df$Match.Length)] <- TRUE
+
+# Success rate
+success_rate <- mean(df$successful_match, na.rm = TRUE)
+print(paste("Overall success rate:", round(success_rate * 100, 1), "%"))
+```
+A third of the matches are successful (maybe slightly biased because many matches just started).
+
+analyzing factors associated with successful matches
+```{r}
+age_group_success <- aggregate(successful_match ~ Age_Group, data = df, FUN = mean)
+age_group_success$count <- aggregate(successful_match ~ Age_Group, data = df, FUN = length)$successful_match
+age_group_success <- age_group_success[order(-age_group_success$successful_match),]
+print("Success rate by mentor age group:")
+print(age_group_success)
+
+gender_success <- aggregate(successful_match ~ Big.Gender, data = df, FUN = mean)
+gender_success$count <- aggregate(successful_match ~ Big.Gender, data = df, FUN = length)$successful_match
+print("Success rate by mentor gender:")
+print(gender_success)
+
+program_type_success <- aggregate(successful_match ~ Program.Type, data = df, FUN = mean)
+program_type_success$count <- aggregate(successful_match ~ Program.Type, data = df, FUN = length)$successful_match
+print("Success rate by program type:")
+print(program_type_success)
+
+ethnicity_match_success <- aggregate(successful_match ~ Ethnicity_Match, data = df, FUN = mean)
+ethnicity_match_success$count <- aggregate(successful_match ~ Ethnicity_Match, data = df, FUN = length)$successful_match
+print("Success rate by ethnicity match:")
+print(ethnicity_match_success)
+
+occupation_success <- aggregate(successful_match ~ Occupation_Category, data = df, FUN = mean)
+occupation_success$count <- aggregate(successful_match ~ Occupation_Category, data = df, FUN = length)$successful_match
+occupation_success <- occupation_success[order(-occupation_success$successful_match),]
+print("Success rate by occupation category:")
+print(occupation_success)
+
+county_success <- aggregate(successful_match ~ County_Factor, data = df, FUN = mean)
+county_success$count <- aggregate(successful_match ~ County_Factor, data = df, FUN = length)$successful_match
+county_success <- county_success[order(-county_success$successful_match),]
+print("Success rate by county:")
+print(county_success)
+
+# Create a function to check success rate for binary factors
+check_binary_factor <- function(factor_name) {
+  formula <- as.formula(paste("successful_match ~", factor_name))
+  success_rate <- aggregate(formula, data = df, FUN = mean)
+  success_rate$count <- aggregate(formula, data = df, FUN = length)$successful_match
+  print(paste("Success rate by", factor_name, ":"))
+  print(success_rate)
+}
+
+compatibility_factors <- c("has_interests", "personality_compatibility", "has_proximity", 
+                          "has_commitment", "has_experience", "has_preference",
+                          "has_challenges", "has_goals")
+
+for (factor in compatibility_factors) {
+  check_binary_factor(factor)
+}
+
+# Logistic regression to identify key predictors of success
+df$successful_match_numeric <- as.numeric(df$successful_match)
+
+model <- glm(successful_match_numeric ~ Big.Age + Big.Gender + Program.Type + 
+              Ethnicity_Match + County_Factor + Occupation_Category + Age_Group +
+              has_interests + personality_compatibility + has_proximity + 
+              has_commitment + has_experience + has_preference + has_challenges + has_goals,
+            family = binomial(link = "logit"), data = df)
+
+summary_model <- summary(model)
+print("Logistic regression results (key predictors of successful matches):")
+print(summary_model)
+
+significant_predictors <- summary_model$coefficients[summary_model$coefficients[,4] < 0.05,]
+print("Significant predictors of match success:")
+print(significant_predictors)
+```
+
+## Logistic Regresison on whether Match was a Success
+```{r}
+filtered_data <- df %>%
+  filter(Match.Activation.Date < as.Date("2023-06-01"))
+set.seed(8080)
+sample_size <- floor(0.8 * nrow(filtered_data))
+train_indices <- sample(seq_len(nrow(filtered_data)), size = sample_size)
+train_data <- filtered_data[train_indices, ]
+test_data <- filtered_data[-train_indices, ]
+
+logistic_model_train <- glm(successful_match ~ log(Big.Age) + Big.Gender + Program.Type + 
+                            has_interests + personality_compatibility + 
+                            has_proximity + has_commitment + has_experience + 
+                            has_preference + has_challenges + has_goals + 
+                            Ethnicity_Match + County_Factor + 
+                            Occupation_Category, 
+                            data = train_data, 
+                            family = binomial(link = "logit"))
+
+
+predictions <- predict(logistic_model_train, newdata = test_data, type = "response")
+predicted_classes <- ifelse(predictions > 0.5, 1, 0)
+
+# Evaluate the model (e.g., using confusion matrix)
+confusion_matrix <- table(Predicted = predicted_classes, Actual = test_data$successful_match)
+print(confusion_matrix)
+
+# Calculate accuracy
+accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+print(paste("Accuracy:", accuracy))
+```
+```{r}
+summary(logistic_model_train)
+```
+
+
+```{r}
+library(car)   
+vif(logistic_model_train)
+```
+
+```{r}
+df
+```
+
+
+GEOCODE:
+GEOCODE COLUMNS (ON CONSOLIDATED df):
+```{r}
+# Function to extract latitude and longitude from TigerWeb API
+get_lat_long <- function(geoid) {
+  if (is.na(geoid) || geoid == "") {
+    return(list(lat = NA_real_, lon = NA_real_))  # Explicitly use NA_real_
+  }
+  
+  # Construct the API URL
+  url <- paste0("https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Tracts_Blocks/MapServer/1/query?where=GEOID='", geoid, "'&outFields=INTPTLAT,INTPTLON&returnGeometry=false&f=json")
+  
+  result <- tryCatch({
+    response <- httr::GET(url)
+    
+    if (httr::status_code(response) != 200) {
+      warning(paste("Failed to get data for GEOID:", geoid, "Status code:", httr::status_code(response)))
+      return(list(lat = NA_real_, lon = NA_real_))
+    }
+    
+    # Parse the JSON response
+    content <- httr::content(response, "text", encoding = "UTF-8")
+    parsed <- jsonlite::fromJSON(content)
+    
+    # Extract latitude and longitude
+    if (length(parsed$features) > 0) {
+      lat <- as.numeric(parsed$features$attributes$INTPTLAT)  # Convert to numeric explicitly
+      lon <- as.numeric(parsed$features$attributes$INTPTLON)  # Convert to numeric explicitly
+      
+      # Double check for numeric values
+      if (is.numeric(lat) && is.numeric(lon)) {
+        return(list(lat = lat, lon = lon))
+      } else {
+        warning(paste("Non-numeric coordinates for GEOID:", geoid))
+        return(list(lat = NA_real_, lon = NA_real_))
+      }
+    } else {
+      warning(paste("No data found for GEOID:", geoid))
+      return(list(lat = NA_real_, lon = NA_real_))
+    }
+  }, error = function(e) {
+    warning(paste("Error processing GEOID:", geoid, "Error:", e$message))
+    return(list(lat = NA_real_, lon = NA_real_))
+  })
+  
+  Sys.sleep(0.2)
+  
+  return(result)
+}
+
+# Improved function to add lat/long columns
+add_lat_long_columns <- function(df) {
+  # Create empty columns with explicit numeric type
+  df$Big_Latitude <- NA_real_
+  df$Big_Longitude <- NA_real_
+  df$Little_Latitude <- NA_real_
+  df$Little_Longitude <- NA_real_
+  
+  pb <- txtProgressBar(min = 0, max = nrow(df), style = 3)
+  
+  # Process each row
+  for (i in 1:nrow(df)) {
+    # Get Big's coordinates
+    if (!is.na(df$Big.Home.Census.Block.Group[i]) && df$Big.Home.Census.Block.Group[i] != "") {
+      big_coords <- get_lat_long(df$Big.Home.Census.Block.Group[i])
+      df$Big_Latitude[i] <- big_coords$lat
+      df$Big_Longitude[i] <- big_coords$lon
+    }
+    
+    # Get Little's coordinates
+    if (!is.na(df$Little.Mailing.Address.Census.Block.Group[i]) && df$Little.Mailing.Address.Census.Block.Group[i] != "") {
+      little_coords <- get_lat_long(df$Little.Mailing.Address.Census.Block.Group[i])
+      df$Little_Latitude[i] <- little_coords$lat
+      df$Little_Longitude[i] <- little_coords$lon
+    }
+    
+    # Update progress bar
+    setTxtProgressBar(pb, i)
+  }
+  
+  close(pb)
+  
+  return(df)
+}
+
+# Improved calculate_distance function with better NA handling
+calculate_distance <- function(lat1, lon1, lat2, lon2) {
+  # Early return if any input is NA or not numeric
+  if (is.na(lat1) || is.na(lon1) || is.na(lat2) || is.na(lon2)) {
+    return(NA_real_)
+  }
+  
+  # Ensure all inputs are numeric
+  lat1 <- as.numeric(lat1)
+  lon1 <- as.numeric(lon1)
+  lat2 <- as.numeric(lat2)
+  lon2 <- as.numeric(lon2)
+  
+  # Check again after conversion
+  if (is.na(lat1) || is.na(lon1) || is.na(lat2) || is.na(lon2)) {
+    return(NA_real_)
+  }
+  
+  # Convert degrees to radians
+  lat1 <- lat1 * pi / 180
+  lon1 <- lon1 * pi / 180
+  lat2 <- lat2 * pi / 180
+  lon2 <- lon2 * pi / 180
+  
+  # Earth radius in miles
+  R <- 3958.8
+  
+  # Haversine formula
+  dlon <- lon2 - lon1
+  dlat <- lat2 - lat1
+  a <- sin(dlat/2)^2 + cos(lat1) * cos(lat2) * sin(dlon/2)^2
+  c <- 2 * atan2(sqrt(a), sqrt(1-a))
+  distance <- R * c
+  
+  return(distance)
+}
+
+df <- add_lat_long_columns(df)
+
+df$Distance_Miles <- mapply(
+  calculate_distance,
+  df$Big_Latitude, df$Big_Longitude, df$Little_Latitude, df$Little_Longitude
+)
+
+
+# Summarize new columns
+summary(df[, c("Big_Latitude", "Big_Longitude", "Little_Latitude", "Little_Longitude", 
+               "Distance_Miles")])
+
+# df$Distance_Category <- cut(
+#   df$Distance_Miles,
+#   breaks = c(0, 5, 10, 20, Inf),
+#   labels = c("Very Close (<5mi)", "Close (5-10mi)", "Moderate (10-20mi)", "Far (>20mi)"),
+#   include.lowest = TRUE
+# )
+
+```
+

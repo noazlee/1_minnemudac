@@ -1,0 +1,2953 @@
+---
+title: "MinneMUDAC DS - Undergrad Questions 2"
+subtitle: "Noah Lee"
+output:
+  pdf_document: default
+  html_document: default
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r}
+#| include: false
+library(tidyverse)
+library(tidymodels)
+library(naniar)    
+library(dplyr)
+library(ggformula)
+library(ggplot2) 
+library(GGally)
+library(survival)
+library(lubridate)
+library(ranger)   
+library(workflows) 
+library(recipes) 
+```
+
+# Predictive model for Match Length
+Big Brother Big Sisters Twin Cities the largest and oldest youth award-winning mentoring organization in the greater Twin Cities.  Each year, we match up youth (Littles age 8-13) and their families with caring adults (Bigs) who volunteer as mentors.  Through a variety of community-based, school-based, and workplace-based mentoring programs, and together with our community, we want every youth to have a mentor, be affirmed in who they are, and explore who they want to be.
+
+Ideas:
+- Big.Level.of.Education - replace NA values with at least HS diploma and combine rest
+- Big.Birthdate - proximity to Little.Birthdate?
+- Geocoding information - Little.Mailing.Address.Census.Block.Group, Big.Home.Census.Block.Group -> Distance from big to their employer?
+- Seasonal effects? Start of school year vs. ?
+- Economic factors - S&P 500 at the time match started/ended? - growth vs recession?
+- look more at academic literature in mentorship/menteeship data
+
+FORM TO CALL TIGERWEB API AND RETURN LAT/LON VALUES:
+https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Tracts_Blocks/MapServer/1/query?where=GEOID='270030501081'&outFields=INTPTLAT,INTPTLON&returnGeometry=false&f=json
+
+Preprocessing
+```{r}
+df <- read.csv('../Data/Training.csv')
+extract_binary_indicators <- function(df) {
+  # Initialize new columns with FALSE (0)
+  interest_categories <- c("has_interests", "personality_compatibility", "has_proximity", 
+                          "has_commitment", "has_experience", "has_preference",
+                          "has_challenges", "has_goals")
+  
+  for (category in interest_categories) {
+    df[[category]] <- FALSE  # Initialize with FALSE for all rows
+  }
+  
+  # Define keywords for each category
+  keywords <- list(
+    has_interests = c("outdoors", "hiking", "biking", "fishing", "camping", "parks", "nature", "gardening", "swimming", "sledding", "horseback riding", "skateboarding", "snowboarding", "ice skating", "picnics", "planting", "rock climbing", "feeding ducks", "flying kites", "sports", "basketball", "football", "soccer", "baseball", "hockey", "bowling", "tennis", "running", "yoga", "Zumba", "gymnastics", "arts", "crafts", "drawing", "painting", "pottery", "sewing", "knitting", "photography", "model cars", "model planes", "creative activities", "acting", "singing", "dancing", "playing musical instruments", "writing","indoor activities", "reading", "cooking", "baking", "board games", "video games", "puzzles", "Lego", "animals", "dogs", "cats", "horses", "pets", "animal care", "learning", "science", "math", "history", "social studies", "STEM projects", "other interests", "fashion", "hair", "nails", "volunteering", "museums", "libraries", "zoos", "movies", "plays"),
+    personality_compatibility = c("outgoing", "talkative", "bubbly", "energetic", "enthusiastic", "charismatic", 
+                                "shy", "reserved", "quiet", "introverted", "soft-spoken", "calm", 
+                                "adventurous", "curious", "exploratory", "open to new things", 
+                                "friendly", "kind", "sweet", "thoughtful", "empathetic", 
+                                "funny", "goofy", "humorous", "light-hearted", 
+                                "mature", "respectful", "responsible", "thoughtful", 
+                                "active", "sporty", "energetic", "athletic", 
+                                "creative", "imaginative", "artistic", "crafty", 
+                                "patient", "calm", "steady", "nurturing"),
+    has_proximity = c("miles", "minutes", "close", "far", "convenient", "driving", "traffic", "commute"),
+    has_commitment = c("long-term", "committed", "consistent", "reliable", "short-term", "temporary", "limited time", "2-4 times a month", "weekly"),
+    has_experience = c("child experience", "nanny", "teacher", "coach", "mentor", "social work", "counseling", "teaching", "overcoming challenges", "mental health"),
+    has_preference= c("age", "younger", "older", "in 20s", "gender", "male", "female", "religion", "Christian", "Catholic", "cultural background", "African American", "Hispanic", "non-smoker", "no guns"),
+    has_challenges = c("behavioral challenges", "ADHD", "unmedicated", "redirection", "mental health", "depression", "anxiety", "PTSD", "family dynamics", "divorce", "strained relationships", "bullying", "picked on", "self-esteem", "academic challenges", "tutoring", "homework help"),
+    has_goals = c("self-esteem", "confidence", "self-image", "leadership", "decision-making", "independence", "academic success", "math", "science", "reading", "social skills", "communication", "making friends", "exploration", "trying new things", "learning new skills")
+  )
+  
+  # Check if Rationale.for.Match column exists in the dataframe
+  if (!"Rationale.for.Match" %in% names(df)) {
+    warning("Column 'Rationale.for.Match' not found in dataframe. No keywords will be extracted.")
+    # Return dataframe with all FALSE values
+    return(df)
+  }
+  
+  # Process each row
+  for (i in 1:nrow(df)) {
+    rationale <- df$Rationale.for.Match[i]
+    
+    # Skip if rationale is NA or empty
+    if (is.na(rationale) || rationale == "") {
+      next
+    }
+    
+    # Check for keywords in each category
+    for (category in names(keywords)) {
+      category_keywords <- keywords[[category]]
+      for (keyword in category_keywords) {
+        if (grepl(keyword, rationale, ignore.case = TRUE)) {
+          df[[category]][i] <- TRUE
+          break 
+        }
+      }
+    }
+  }
+  
+  # Convert logical columns to factors (0/1)
+  for (category in interest_categories) {
+    df[[category]] <- as.factor(as.integer(df[[category]]))
+  }
+  
+  return(df)
+}
+
+df <- extract_binary_indicators(df)
+df$Little.ID <- NULL
+df$Big.ID <- NULL
+df$Big.Employer <- NULL
+df$Closure.Details <- NULL
+df$Big.Open.to.Cross.Gender.Match <- NULL
+df$Big.Contact..Interest.Finder...Sports <- NULL
+df$Big.Contact..Interest.Finder...Places.To.Go <- NULL
+df$Big.Contact..Interest.Finder...Hobbies <- NULL
+df$Big.Contact..Interest.Finder...Entertainment <- NULL
+df$Big.Contact..Interest.Finder...Hobbies <- NULL
+df$Big.Contact..Created.Date <- NULL
+df$Big.Enrollment..Created.Date <- NULL
+df$Little.Contact..Interest.Finder...Sports <- NULL
+df$Little.Contact..Interest.Finder...Outdoors <- NULL
+df$Little.Contact..Interest.Finder...Arts <- NULL
+df$Little.Contact..Interest.Finder...Places.To.Go <- NULL
+df$Little.Contact..Interest.Finder...Hobbies <- NULL
+df$Little.Contact..Interest.Finder...Entertainment <- NULL
+df$Little.Contact..Interest.Finder...Other.Interests <- NULL
+df$Little.Other.Interests <- NULL
+df$Little.Contact..Interest.Finder...Career <- NULL
+df$Little.Contact..Interest.Finder...Personality <- NULL
+df$Little.Contact..Interest.Finder...Three.Wishes <- NULL
+df$Little.Other.Interests <- NULL
+df$Rationale.for.Match <- NULL
+df$Big.County[df$Big.County == ""] <- NA
+df$Match.Activation.Date <- as.Date(df$Match.Activation.Date, format="%Y-%m-%d")
+df$Big.Approved.Date <- as.Date(df$Big.Approved.Date, format="%Y-%m-%d") 
+df$Big.Acceptance.Date <- as.Date(df$Big.Acceptance.Date, format="%Y-%m-%d") 
+df$Match.Closure.Meeting.Date <- as.Date(df$Match.Closure.Meeting.Date, format="%Y-%m-%d") 
+df$Big.Birthdate <- as.Date(df$Big.Birthdate, format="%Y-%m-%d") 
+df$Little.Birthdate <- as.Date(df$Little.Birthdate, format="%Y-%m-%d") 
+df$Little.Interview.Date <- as.Date(df$Little.Interview.Date, format="%Y-%m-%d") 
+df$Little.RTBM.Date.in.MF <- as.Date(df$Little.RTBM.Date.in.MF, format="%Y-%m-%d") 
+#Function to check if Big and Little ethnicities share any keywords
+check_ethnicity_match <- function(df) {
+  # Create a new column to store the matching result
+  df$Ethnicity_Match <- FALSE
+  
+  # Loop through each row
+  for (i in 1:nrow(df)) {
+    # Get the Big and Little race/ethnicity values
+    big_race <- df$Big.Race.Ethnicity[i]
+    little_race <- df$Little.Participant..Race.Ethnicity[i]
+    
+    # Skip if either value is NA
+    if (is.na(big_race) || is.na(little_race)) {
+      df$Ethnicity_Match[i] <- NA
+      next
+    }
+    
+    # Convert to character (in case they're factors)
+    big_race <- as.character(big_race)
+    little_race <- as.character(little_race)
+    
+    # Split strings by semicolons to handle multiple ethnicities
+    big_races <- unlist(strsplit(big_race, ";"))
+    little_races <- unlist(strsplit(little_race, ";"))
+    
+    # Clean up any leading/trailing spaces
+    big_races <- trimws(big_races)
+    little_races <- trimws(little_races)
+    
+    # Check if there's any match
+    match_found <- FALSE
+    for (b in big_races) {
+      for (l in little_races) {
+        # Extract keywords to compare (simplify the comparison)
+        keywords <- c("White", "Black", "Asian", "Hispanic", "Indian", "Alaska", 
+                     "Middle Eastern", "North African", "Other")
+        
+        # Check for each keyword
+        for (keyword in keywords) {
+          if (grepl(keyword, b, ignore.case = TRUE) && 
+              grepl(keyword, l, ignore.case = TRUE)) {
+            match_found <- TRUE
+            break
+          }
+        }
+        if (match_found) break
+      }
+      if (match_found) break
+    }
+    
+    # Assign the result
+    df$Ethnicity_Match[i] <- match_found
+  }
+  
+  return(df)
+}
+
+df <- check_ethnicity_match(df)
+df$Stage <- factor(ifelse(df$Stage == "Closed", "Closed", "Active"))
+df[df == ""] <- NA
+df$Big.Languages[df$Big.Languages == ""] <- NA
+df$Big.Gender <- factor(df$Big.Gender, 
+                        levels = c("Female", "Male"),
+                        labels = c("Female", "Male"))
+df$Big..Military <- NULL
+df$Program <- as.factor(df$Program)
+df$Program.Type <- as.factor(df$Program.Type)
+df$Big.Languages <- NULL
+df$Big.Contact..Preferred.Communication.Type <- NULL
+df$Big.Contact..Former.Big.Little <- NULL
+df$Big.Contact..Volunteer.Availability <- NULL
+# df$Little.RTBM.Date.in.MF <- NULL
+df$Little.Contact..Language.s..Spoken <- NULL
+df$Little.Acceptance.Date <- NULL
+df$Little.Application.Received <- NULL
+df$Little.Moved.to.RTBM.in.MF <- NULL
+# df$Little.Mailing.Address.Census.Block.Group <- NULL
+# df$Little.Acceptance.Date <- NULL
+# df$Big.Home.Census.Block.Group <- NULL
+# df$Big.Employer.School.Census.Block.Group <- NULL
+df$Little.Gender <- NULL
+# df$Little.Birthdate <- NULL
+df$Little.RTBM.in.Matchforce <- NULL
+df$Little.Interview.Date <- NULL
+df$Big.Acceptance.Date <- NULL
+df$Big.Assessment.Uploaded <- NULL
+df$Big.Days.Interview.to.Match <- NULL
+df$Big.Days.Interview.to.Acceptance <- NULL
+consolidate_counties <- function(county_data, min_frequency = 50) {
+  consolidated <- county_data
+  county_counts <- table(county_data[county_data != ""])
+  rare_counties <- names(county_counts[county_counts < min_frequency])
+  consolidated[consolidated %in% rare_counties] <- "Other"
+  # Convert to factor with meaningful levels
+  consolidated <- factor(consolidated)
+  
+  return(consolidated)
+}
+
+df$County_Factor <- consolidate_counties(df$Big.County)
+summary(df$County_Factor)
+df$Big.County <- NULL
+# Function to categorize text fields based on keywords
+categorize_text <- function(text_vector, category_rules, default_category = "Other") {
+  result <- rep(default_category, length(text_vector))
+  
+  if (any(is.na(text_vector))) {
+    result[is.na(text_vector)] <- NA
+  }
+  
+  text_vector <- tolower(trimws(text_vector))
+  
+  for (category_name in names(category_rules)) {
+    keywords <- category_rules[[category_name]]
+    
+    # Check if any keyword appears in each entry
+    match_indices <- sapply(text_vector, function(text) any(grepl(paste(keywords, collapse = "|"), text, ignore.case = TRUE)))
+    
+    # Assign the category where matches occur
+    result[match_indices] <- category_name
+  }
+  
+  return(factor(result))
+}
+
+# Define category rules for each text field
+closure_reason_rules <- list(
+  "Scheduling_Issues" = c("schedule", "time", "availability", "busy", "time constraint"),
+  "Relationship_Problems" = c("relationship", "conflict", "disagree", "personal", "not compatible", "incompatible", "lost contact", "lost interest"),
+  "Relocation" = c("move", "moved", "relocation", "relocate", "different city", "different state"),
+  "Family_Issues" = c("family", "parent", "guardian", "parental"),
+  "School_Issues" = c("school", "academic", "education", "grade", "graduated", "graduate"),
+  "Health_Issues" = c("health", "illness", "medical", "sick", "disease", "covid", "deceased"),
+  "Behavior_Issues" = c("behavior", "conduct", "attitude", "disciplin"),
+  "Program_Requirements" = c("requirement", "qualify", "eligibility", "criteria", "guideline", "infraction", "expectations", "challenges"),
+  "Success" = c("success", "successful")
+)
+
+occupation_rules <- list(
+  "Business_Finance" = c("account", "financ", "budget", "analyst", "bank", "economic", "market", "business", "consultant", "insurance", "entrepreneur"),
+  "Education" = c("teach", "professor", "instructor", "education", "academic", "school", "college", "university"),
+  "Healthcare" = c("doctor", "nurse", "medical", "health", "dental", "therapist", "clinic", "hospital", "coach"),
+  "Technology" = c("software", "developer", "engineer", "IT", "computer", "tech", "program", "web", "data"),
+  "Legal" = c("lawyer", "attorney", "legal", "law", "judge", "paralegal"),
+  "Arts_Media" = c("artist", "design", "writer", "media", "journalist", "creative", "music", "film", "arts"),
+  "Service_Industry" = c("retail", "sales", "service", "hospitality", "restaurant", "customer", "child"),
+  "Trades_Labor" = c("construct", "mechanic", "carpenter", "electric", "plumb", "repair", "builder", "labor"),
+  "Student" = c("student", "graduate", "undergrad"),
+  "Unknown" = c("unknown"),
+  "Retired" = c("retire")
+)
+
+df$Closure_Reason_Category <- categorize_text(df$Closure.Reason, closure_reason_rules)
+df$Occupation_Category <- categorize_text(df$Big.Occupation, occupation_rules)
+summary(df$Closure_Reason_Category)
+summary(df$Occupation_Category)
+df$Closure.Reason <- NULL
+df$Big.Occupation <- NULL
+df$Big.Days.Acceptance.to.Match <- abs(df$Big.Days.Acceptance.to.Match)
+
+# Sort the original DataFrame in place
+df <- df[order(df$Match.Activation.Date), ]
+# Create a factor variable with two levels
+df$Big.Enrollment..Record.Type <- factor(
+  ifelse(df$Big.Enrollment..Record.Type == "CB Volunteer Enrollment", 
+         "CB Volunteer Enrollment", 
+         "Others")
+)
+# Create new categorical variable from Big.Contact..Marital.Status
+df$Big.Contact..Marital.Status <- factor(
+  case_when(
+    df$Big.Contact..Marital.Status == "Single" ~ "Single",
+    !is.na(df$Big.Contact..Marital.Status) ~ "Not Single",
+    TRUE ~ NA_character_
+  ),
+  levels = c("Single", "Not Single")
+)
+df$Stage <- ifelse(df$Stage == "Closed", 1, 0)
+```
+
+```{r}
+df <- df %>%
+  mutate(
+    # Handle education level for students
+    Big.Level.of.Education = case_when(
+      is.na(Big.Level.of.Education) & Occupation_Category == "Student" ~ "Some High School",
+      TRUE ~ Big.Level.of.Education
+    ),
+    across(where(is.character), ~replace_na(., "Unknown"))
+  )
+```
+
+```{r}
+# Age gap feature
+df$Little.Birthdate <- as.Date(df$Little.Birthdate)
+
+df$age_gap <- as.numeric(difftime(df$Big.Birthdate, df$Little.Birthdate, units = "days") / 365.25) # in years
+df$age_gap_abs <- abs(df$age_gap)
+summary(df$age_gap)
+```
+
+MONTHS UNTIL MATCH ENDED (FROM LOG):
+```{r}
+missing_closure_dates <- df %>%
+  filter(Stage == 1 & is.na(Match.Closure.Meeting.Date)) %>%
+  nrow()
+
+df <- df %>%
+  mutate(
+    # Convert dates to ensure they're in Date format
+    Match.Activation.Date = as.Date(Match.Activation.Date),
+    Match.Closure.Meeting.Date = as.Date(Match.Closure.Meeting.Date),
+    
+    # Fill in missing closure dates for closed matches
+    Match.Closure.Meeting.Date = case_when(
+      # If it's a closed match with missing closure date but has activation date and match length
+      Stage == 1 & is.na(Match.Closure.Meeting.Date) & !is.na(Match.Activation.Date) & !is.na(Match.Length) ~
+        Match.Activation.Date + days(round(Match.Length * 30.44)), # Convert months to days
+      
+      # Otherwise keep the original value
+      TRUE ~ Match.Closure.Meeting.Date
+    )
+  )
+
+df <- df %>%
+  mutate(
+    Completion.Date = as.Date(Completion.Date),
+    Match.Closure.Meeting.Date = as.Date(Match.Closure.Meeting.Date),
+    
+    # Calculate months_to_closure - time from log to closure date in months
+    # For rows where Stage == 0 (closed matches), calculate the difference
+    # For rows where Stage == 1 (active matches), set to NA
+    months_to_closure = case_when(
+      Stage == 1 & !is.na(Completion.Date) & !is.na(Match.Closure.Meeting.Date) ~ 
+        round(as.numeric(interval(Completion.Date, Match.Closure.Meeting.Date) / months(1)), 1),
+      Stage == 0 ~ NA_real_,  # Set to NA for active matches
+      TRUE ~ NA_real_  # Handle any other cases (missing dates, etc.)
+    )
+  )
+
+# Verify the new column was created correctly
+summary(df$months_to_closure)
+
+# Check some examples
+head(df %>% select(Match.ID.18Char, Completion.Date, Match.Closure.Meeting.Date, Stage, months_to_closure))
+
+# Save the updated dataframe
+write.csv(df, "df_with_months_to_closure.csv", row.names = FALSE)
+df
+```
+
+
+## Looking at df$'Match.Support.Contact.Notes'
+```{r}
+format_string <- function(input_string) {
+  formatted_string <- gsub("(Question:|Answer:)", "\n\\1", input_string)
+  formatted_string <- gsub("(Question:|Answer:)", "\\1\n", formatted_string)
+  return(formatted_string)
+}
+
+cat(format_string(df$`Match.Support.Contact.Notes`[1:4]))
+```
+
+```{r}
+library(tidyverse)
+library(tidytext)
+library(textstem)  # For proper lemmatization
+
+# Define BBBS-specific stopwords
+bbbs_stopwords <- c(
+  "said", "asked", "question", "answer", "mec", "responded", "shared", "commented",
+  "l_first_name", "b_first_name", "little", "big", "kit", "match", "bs", "mc", "ls",
+  "child", "volunteer", "safety", "development", "activity", "activities",
+  "relationship", "bbbs", "concern", "note", "log", "meeting", "contact"
+)
+
+# Create a function for properly cleaning and lemmatizing text
+clean_and_lemmatize_notes <- function(notes) {
+  # Handle NA or empty strings
+  if (is.na(notes) || notes == "") {
+    return("")
+  }
+  
+  # Clean the text
+  clean_text <- notes %>%
+    # Convert to lowercase
+    tolower() %>%
+    # Remove "Question: Category: Answer:" patterns
+    str_replace_all("question:\\s*[^:]+:\\s*answer:\\s*", " ") %>%
+    # Remove "MEC asked, ... shared/responded" patterns
+    str_replace_all("mec asked,\\s*[^?]+\\?\\s*\\w+ (shared|responded|commented)[^.]*", " ") %>%
+    # Replace common name patterns
+    str_replace_all("l_first_name|b_first_name", " ") %>%
+    # Remove punctuation and replace with spaces
+    str_replace_all("[[:punct:]]", " ") %>%
+    # Replace multiple spaces with a single space
+    str_replace_all("\\s+", " ") %>%
+    # Trim leading/trailing whitespace
+    str_trim()
+  
+  # Tokenize the text
+  tokens_df <- tibble(text = clean_text) %>%
+    unnest_tokens(word, text) %>%
+    # Remove stopwords (both standard and BBBS-specific)
+    anti_join(tibble(word = c(stop_words$word, bbbs_stopwords)), by = "word") %>%
+    # Remove short words
+    filter(nchar(word) > 2)
+  
+  # Apply proper lemmatization
+  lemmatized_words <- tokens_df %>%
+    mutate(lemma = lemmatize_words(word))
+  
+  # Combine the tokens back into a string
+  cleaned_text <- lemmatized_words %>%
+    pull(lemma) %>%
+    paste(collapse = " ")
+  
+  return(cleaned_text)
+}
+
+# Apply the function to create a new column
+df$cleaned_notes <- sapply(df$`Match.Support.Contact.Notes`, clean_and_lemmatize_notes)
+
+df
+write.csv(df, "df.csv")
+```
+
+Features from cleaned text:
+```{r}
+dtm <- df %>%
+  filter(cleaned_notes != "") %>%
+  mutate(doc_id = row_number()) %>%
+  unnest_tokens(word, cleaned_notes) %>%
+  count(doc_id, word) %>%
+  cast_dtm(doc_id, word, n)
+
+improved_tfidf <- df %>%
+  filter(cleaned_notes != "") %>%
+  mutate(doc_id = row_number()) %>%
+  unnest_tokens(word, cleaned_notes) %>%
+  filter(!(word %in% c(stop_words$word, bbbs_stopwords))) %>%
+  filter(!str_detect(word, "\\d")) %>%
+  filter(str_detect(word, "^[a-z]+$")) %>%
+  filter(nchar(word) > 3) %>%
+  filter(!(word %in% c("ltk", "sbf", "jpg", "dae", "conuct", "attened", "herslef"))) %>%
+  count(doc_id, word) %>%
+  bind_tf_idf(word, doc_id, n)
+
+word_counts <- improved_tfidf %>%
+  group_by(word) %>%
+  summarize(doc_count = n_distinct(doc_id))
+
+meaningful_tfidf <- improved_tfidf %>%
+  inner_join(word_counts %>% filter(doc_count >= 5), by = "word") %>%
+  group_by(word) %>%
+  summarize(mean_tf_idf = mean(tf_idf)) %>%
+  arrange(desc(mean_tf_idf)) %>%
+  head(20)
+
+print(meaningful_tfidf)
+```
+
+Word frequency:
+```{r}
+top_words <- df %>%
+  filter(cleaned_notes != "") %>%
+  unnest_tokens(word, cleaned_notes) %>%
+  count(word, sort = TRUE) %>%
+  head(100) %>%
+  pull(word)
+
+top_words
+```
+
+Topic model:
+```{r}
+set.seed(123) 
+library(topicmodels)
+
+# LDA model with 10 topics
+lda_model <- LDA(dtm, k = 10, control = list(seed = 123))
+
+# Extract topic-word probabilities
+topics <- tidy(lda_model, matrix = "beta")
+
+# Get top terms for each topic
+top_terms <- topics %>%
+  group_by(topic) %>%
+  slice_max(beta, n = 10) %>%
+  arrange(topic, -beta)
+
+# Convert doc_id to character in doc_topics
+doc_topics <- tidy(lda_model, matrix = "gamma") %>%
+  rename(doc_id = document) %>%
+  mutate(doc_id = as.character(doc_id))
+
+# Print to check structure
+print(head(doc_topics))
+
+# Create doc_id_map with character IDs
+doc_id_map <- df %>%
+  filter(cleaned_notes != "") %>%
+  mutate(doc_id = as.character(row_number())) %>%
+  select(Match.ID.18Char, doc_id)
+
+# Join and pivot without grouping
+topic_df <- doc_topics %>%
+  left_join(doc_id_map, by = "doc_id") %>%
+  # Filter out NAs
+  filter(!is.na(Match.ID.18Char)) %>%
+  # Group by match ID and topic, then calculate mean gamma
+  group_by(Match.ID.18Char, topic) %>%
+  summarize(gamma = mean(gamma, na.rm = TRUE), .groups = "drop") %>%
+  # Now pivot
+  pivot_wider(
+    id_cols = Match.ID.18Char,
+    names_from = topic,
+    values_from = gamma,
+    names_prefix = "topic_"
+  )
+
+topic_df
+# df <- df %>%
+#   left_join(topic_df, by = "Match.ID.18Char") - analyse importance of topic compared to match length
+```
+
+```{r}
+match_topic_data <- df %>%
+  select(Match.ID.18Char, Match.Length) %>%
+  right_join(topic_df, by = "Match.ID.18Char") %>%
+  filter(!is.na(Match.Length))
+
+topic_summary <- match_topic_data %>%
+  select(starts_with("topic_")) %>%
+  summary()
+
+print(topic_summary)
+
+# Calculate correlations between topics and match length
+topic_correlations <- match_topic_data %>%
+  select(Match.Length, starts_with("topic_")) %>%
+  cor() %>%
+  as.data.frame() %>%
+  select(Match.Length) %>%
+  filter(row.names(.) != "Match.Length") %>%
+  arrange(desc(abs(Match.Length)))
+
+print(topic_correlations)
+
+# Visualize top correlations
+top_topics <- rownames(topic_correlations)[1:5]
+
+match_topic_data %>%
+  select(Match.Length, all_of(top_topics)) %>%
+  pivot_longer(cols = all_of(top_topics), names_to = "topic", values_to = "probability") %>%
+  ggplot(aes(x = probability, y = Match.Length)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~topic) +
+  labs(title = "Relationship Between Top Topics and Match Length",
+       x = "Topic Probability",
+       y = "Match Length (months)")
+
+# Run a linear regression to assess significance
+topic_model <- lm(Match.Length ~ ., data = match_topic_data %>% select(Match.Length, starts_with("topic_")))
+topic_importance <- summary(topic_model)$coefficients %>%
+  as.data.frame() %>%
+  rownames_to_column("term") %>%
+  filter(term != "(Intercept)") %>%
+  arrange(desc(abs(`t value`)))
+
+print(topic_importance)
+```
+
+```{r}
+topic_5_words <- topics %>%
+  filter(topic == 5) %>%
+  arrange(desc(beta)) %>%
+  head(20)  # Get top 20 words
+
+print(topic_5_words)
+```
+
+```{r}
+topic_5_docs <- doc_topics %>%
+  filter(topic == 5) %>%
+  arrange(desc(gamma)) %>%
+  head(10) %>%  # Get top 10 documents
+  select(doc_id, gamma)
+
+topic_5_examples <- df %>%
+  filter(cleaned_notes != "") %>%
+  mutate(doc_id = as.character(row_number())) %>%
+  inner_join(topic_5_docs, by = "doc_id") %>%
+  select(Match.ID.18Char, doc_id, Match.Support.Contact.Notes, cleaned_notes, gamma) %>%
+  arrange(desc(gamma))
+
+# Print the top examples
+print(topic_5_examples %>% select(Match.ID.18Char, doc_id, gamma))
+
+# To see the full text of a specific example (e.g., the first one)
+print(topic_5_examples$Match.Support.Contact.Notes[1])
+print(topic_5_examples$cleaned_notes[1])
+df
+```
+
+Sentiment analysis:
+```{r}
+library(tidyverse)
+library(tidytext)
+
+efficient_sentiment_analysis <- function(df) {
+  bing_lexicon <- get_sentiments("bing")
+  afinn_lexicon <- get_sentiments("afinn")
+  
+  joy_words <- c("happy", "enjoy", "joy", "fun", "love", "smile", "laugh", "excite", 
+                "great", "well", "good", "nice", "awesome", "wonderful", "fantastic")
+  
+  trust_words <- c("trust", "honest", "loyal", "respect", "reliable", "depend", 
+                  "faith", "believe", "confident", "committed", "responsible")
+  
+  fear_words <- c("fear", "afraid", "worry", "scared", "anxious", "nervous", 
+                 "concern", "stress", "danger", "risk", "threat")
+  
+  anger_words <- c("anger", "angry", "mad", "hate", "rage", "irritate", "annoyed", 
+                  "frustrate", "upset", "bitter", "hostile", "aggressive")
+  
+  sadness_words <- c("sad", "unhappy", "depress", "sorry", "grief", "disappoint", 
+                    "miss", "hurt", "pain", "cry", "tear", "alone", "lonely")
+  
+
+  analyze_single_text <- function(text) {
+    if (is.na(text) || text == "") {
+      return(list(
+        positive = 0, negative = 0, 
+        bing_sentiment_score = 0, bing_sentiment_ratio = 0.5,
+        afinn_sentiment_score = 0, afinn_word_count = 0, afinn_avg_score = 0,
+        joy = 0, trust = 0, fear = 0, anger = 0, sadness = 0
+      ))
+    }
+    
+    words <- unlist(strsplit(text, "\\s+"))
+    
+    bing_matches <- bing_lexicon[bing_lexicon$word %in% words, ]
+    positive_count <- sum(bing_matches$sentiment == "positive")
+    negative_count <- sum(bing_matches$sentiment == "negative")
+    bing_score <- positive_count - negative_count
+    bing_ratio <- if ((positive_count + negative_count) > 0) {
+      positive_count / (positive_count + negative_count)
+    } else {
+      0.5
+    }
+    
+    afinn_matches <- afinn_lexicon[afinn_lexicon$word %in% words, ]
+    afinn_score <- sum(afinn_matches$value)
+    afinn_count <- nrow(afinn_matches)
+    afinn_avg <- if (afinn_count > 0) afinn_score / afinn_count else 0
+    
+    joy_count <- sum(sapply(joy_words, function(w) sum(grepl(w, words))))
+    trust_count <- sum(sapply(trust_words, function(w) sum(grepl(w, words))))
+    fear_count <- sum(sapply(fear_words, function(w) sum(grepl(w, words))))
+    anger_count <- sum(sapply(anger_words, function(w) sum(grepl(w, words))))
+    sadness_count <- sum(sapply(sadness_words, function(w) sum(grepl(w, words))))
+    
+    return(list(
+      positive = positive_count,
+      negative = negative_count,
+      bing_sentiment_score = bing_score,
+      bing_sentiment_ratio = bing_ratio,
+      afinn_sentiment_score = afinn_score,
+      afinn_word_count = afinn_count,
+      afinn_avg_score = afinn_avg,
+      joy = joy_count,
+      trust = trust_count,
+      fear = fear_count,
+      anger = anger_count,
+      sadness = sadness_count
+    ))
+  }
+  
+  message("Starting sentiment analysis...")
+  result <- df %>%
+    rowwise() %>%
+    mutate(
+      sentiment_data = list(analyze_single_text(cleaned_notes)),
+      positive = sentiment_data$positive,
+      negative = sentiment_data$negative,
+      bing_sentiment_score = sentiment_data$bing_sentiment_score,
+      bing_sentiment_ratio = sentiment_data$bing_sentiment_ratio,
+      afinn_sentiment_score = sentiment_data$afinn_sentiment_score,
+      afinn_word_count = sentiment_data$afinn_word_count,
+      afinn_avg_score = sentiment_data$afinn_avg_score,
+      joy = sentiment_data$joy,
+      trust = sentiment_data$trust,
+      fear = sentiment_data$fear,
+      anger = sentiment_data$anger,
+      sadness = sentiment_data$sadness
+    ) %>%
+    select(-sentiment_data) %>%
+    ungroup()
+  
+  message("Sentiment analysis completed.")
+  return(result)
+}
+
+df_with_sentiment <- efficient_sentiment_analysis(df)
+
+print(dim(df))
+print(dim(df_with_sentiment))
+```
+
+```{r}
+# Aggregate sentiment scores by Match ID for analysis
+match_sentiment <- df_with_sentiment %>%
+  group_by(Match.ID.18Char) %>%
+  summarize(
+    positive_sum = sum(positive),
+    negative_sum = sum(negative),
+    bing_score_avg = mean(bing_sentiment_score, na.rm = TRUE),
+    bing_ratio_avg = mean(bing_sentiment_ratio, na.rm = TRUE),
+    afinn_score_avg = mean(afinn_sentiment_score, na.rm = TRUE),
+    joy_sum = sum(joy),
+    trust_sum = sum(trust),
+    fear_sum = sum(fear),
+    anger_sum = sum(anger),
+    sadness_sum = sum(sadness),
+    log_count = n()
+  )
+
+# Join with match data
+match_data <- df %>%
+  select(Match.ID.18Char, Match.Length, months_to_closure) %>%
+  distinct() %>%
+  left_join(match_sentiment, by = "Match.ID.18Char")
+
+# Create closing_soon variable
+match_data <- match_data %>%
+  mutate(closing_soon = ifelse(months_to_closure <= 3 & months_to_closure > 0, 1, 0))
+
+# Analyze correlation with Match.Length in Matches closing soon
+sentiment_correlation <- match_data %>%
+  select(Match.Length, starts_with("positive"), starts_with("negative"), 
+         starts_with("bing"), starts_with("afinn"), 
+         joy_sum, trust_sum, fear_sum, anger_sum, sadness_sum) %>%
+  cor(use = "pairwise.complete.obs") %>%
+  as.data.frame() %>%
+  select(Match.Length) %>%
+  arrange(desc(abs(Match.Length)))
+
+print("Correlation of sentiment features with Match.Length:")
+print(sentiment_correlation)
+
+df <- df %>%
+  mutate(closing_soon = case_when(
+    # Match will end within 3 months
+    months_to_closure <= 3 & months_to_closure > 0 ~ 1,
+    # Match will continue longer than 3 months
+    months_to_closure > 3 ~ 0,
+    # No closure date information or already closed
+    TRUE ~ 0
+  ))
+```
+
+
+```{r}
+df2 <- df
+df <- df %>%
+  filter(closing_soon == 0)
+df$Match.Support.Contact.Notes[1:2]
+```
+
+```{r}
+str(df_with_sentiment)
+```
+
+
+## FINISH SENTIMENT ANALYSIS
+```{r}
+# Load necessary libraries
+library(survival)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(tidyr)
+
+# Assuming df_with_sentiment is already loaded with sentiment data
+# First calculate survival analysis to determine match length threshold
+km_fit <- survfit(Surv(Match.Length, Stage) ~ 1, data = df_with_sentiment)
+print(summary(km_fit))
+
+# Use median survival time from Kaplan-Meier as threshold (if available)
+if(!is.null(km_fit$median)) {
+  median_survival <- km_fit$median
+} else {
+  # Fallback if median survival time is not reached
+  median_survival <- median(df_with_sentiment$Match.Length, na.rm = TRUE)
+}
+
+# Categorize into long and short match logs
+df_with_sentiment$length_category <- ifelse(
+  df_with_sentiment$Match.Length > median_survival | 
+    (df_with_sentiment$Stage == 0 & df_with_sentiment$Match.Length > (median_survival/2)),
+  "long", 
+  "short"
+)
+
+# Convert completion date to proper date format if needed
+df_with_sentiment$Completion.Date <- as.Date(df_with_sentiment$Completion.Date)
+
+# Add quarter and year variables for time-based analysis
+df_with_sentiment <- df_with_sentiment %>%
+  mutate(
+    year = year(Completion.Date),
+    quarter = quarter(Completion.Date),
+    year_quarter = paste0(year, "-Q", quarter)
+  )
+
+# Analyze sentiment change over time
+sentiment_over_time <- df_with_sentiment %>%
+  # Group by length category, year and quarter
+  group_by(length_category, year_quarter) %>%
+  # Calculate average sentiment metrics for each group
+  summarize(
+    avg_bing_sentiment = mean(bing_sentiment_score, na.rm = TRUE),
+    avg_afinn_sentiment = mean(afinn_sentiment_score, na.rm = TRUE),
+    avg_joy = mean(joy, na.rm = TRUE),
+    avg_trust = mean(trust, na.rm = TRUE),
+    avg_fear = mean(fear, na.rm = TRUE),
+    avg_anger = mean(anger, na.rm = TRUE),
+    avg_sadness = mean(sadness, na.rm = TRUE),
+    count = n()
+  ) %>%
+  # Arrange by year_quarter to see changes over time
+  arrange(length_category, year_quarter)
+
+# Print summary of sentiment changes
+print(sentiment_over_time)
+
+# Create a plot to visualize sentiment change over time
+ggplot(sentiment_over_time, aes(x = year_quarter, y = avg_bing_sentiment, 
+                               group = length_category, color = length_category)) +
+  geom_line(size = 1) +
+  geom_point(size = 3) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    title = "Sentiment Score Change Over Time",
+    subtitle = "Comparing Long vs Short Matches",
+    x = "Year-Quarter",
+    y = "Average Bing Sentiment Score",
+    color = "Match Length"
+  )
+
+# Create a plot for positive emotions (joy and trust)
+positive_emotions <- sentiment_over_time %>%
+  select(length_category, year_quarter, avg_joy, avg_trust) %>%
+  pivot_longer(cols = c(avg_joy, avg_trust), 
+               names_to = "emotion", values_to = "score")
+
+ggplot(positive_emotions, aes(x = year_quarter, y = score, 
+                             group = interaction(length_category, emotion), 
+                             color = length_category, linetype = emotion)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    title = "Positive Emotions Over Time",
+    subtitle = "Joy and Trust in Long vs Short Matches",
+    x = "Year-Quarter",
+    y = "Average Score",
+    color = "Match Length",
+    linetype = "Emotion"
+  )
+
+# Create a plot for negative emotions (fear, anger, sadness)
+negative_emotions <- sentiment_over_time %>%
+  select(length_category, year_quarter, avg_fear, avg_anger, avg_sadness) %>%
+  pivot_longer(cols = c(avg_fear, avg_anger, avg_sadness), 
+               names_to = "emotion", values_to = "score")
+
+ggplot(negative_emotions, aes(x = year_quarter, y = score, 
+                             group = interaction(length_category, emotion), 
+                             color = length_category, linetype = emotion)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    title = "Negative Emotions Over Time",
+    subtitle = "Fear, Anger, and Sadness in Long vs Short Matches",
+    x = "Year-Quarter",
+    y = "Average Score",
+    color = "Match Length",
+    linetype = "Emotion"
+  )
+
+# Calculate sentiment change rate (slope) for each match
+match_sentiment_change <- df_with_sentiment %>%
+  # First count the observations per match ID
+  group_by(Match.ID.18Char) %>%
+  mutate(obs_count = n()) %>%
+  ungroup() %>%
+  # Then filter and process only matches with enough observations
+  filter(obs_count >= 3) %>%
+  group_by(Match.ID.18Char, length_category) %>%
+  # Use a linear model to get the slope of sentiment change over time
+  do(model_data = {
+    model <- lm(bing_sentiment_score ~ as.numeric(Completion.Date), data = .)
+    data.frame(
+      sentiment_slope = if(length(coef(model)) >= 2) coef(model)[2] else NA
+    )
+  }) %>%
+  unnest(model_data) %>%
+  select(Match.ID.18Char, length_category, sentiment_slope)
+
+# Compare average sentiment slope between long and short matches
+sentiment_slope_summary <- match_sentiment_change %>%
+  group_by(length_category) %>%
+  summarize(
+    avg_sentiment_slope = mean(sentiment_slope, na.rm = TRUE),
+    median_sentiment_slope = median(sentiment_slope, na.rm = TRUE),
+    count = n()
+  )
+
+print(sentiment_slope_summary)
+
+# Test if the difference in sentiment slopes is statistically significant
+if(sum(!is.na(match_sentiment_change$sentiment_slope)) > 10) {
+  t_test_result <- t.test(
+    sentiment_slope ~ length_category, 
+    data = match_sentiment_change
+  )
+  print(t_test_result)
+}
+
+# Find most common words associated with positive sentiment in long matches
+# This could be done with text mining packages like tm or tidytext
+
+sentiment_correlations <- df_with_sentiment %>%
+  summarize(
+    bing_correlation = cor(bing_sentiment_score, Match.Length, use = "pairwise.complete.obs"),
+    afinn_correlation = cor(afinn_sentiment_score, Match.Length, use = "pairwise.complete.obs"),
+    joy_correlation = cor(joy, Match.Length, use = "pairwise.complete.obs"),
+    trust_correlation = cor(trust, Match.Length, use = "pairwise.complete.obs"),
+    fear_correlation = cor(fear, Match.Length, use = "pairwise.complete.obs"),
+    anger_correlation = cor(anger, Match.Length, use = "pairwise.complete.obs"),
+    sadness_correlation = cor(sadness, Match.Length, use = "pairwise.complete.obs")
+  )
+
+print(sentiment_correlations)
+
+# POTENTIAL THINGS TO LOOK AT 
+# Time-dependent covariates:
+# Track how sentiment, topic probabilities, and communication patterns change over time
+# Word embedding features
+# 
+```
+Observe a dip around covid era and boost coming out of it.
+
+Find most common words associated with positive sentiment in long matches:
+This could be done with text mining packages like tm or tidytext
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(tidytext)
+library(stringr)
+library(ggplot2)
+library(wordcloud)
+library(tidyr)
+
+# Function to analyze words associated with positive sentiment in long matches
+analyze_positive_sentiment_words <- function(df) {
+  # Check if required columns exist
+  required_cols <- c("Match.ID.18Char", "Match.Length", "cleaned_notes", "bing_sentiment_score")
+  missing_cols <- setdiff(required_cols, names(df))
+  
+  if(length(missing_cols) > 0) {
+    stop(paste("Missing required columns:", paste(missing_cols, collapse=", ")))
+  }
+  
+  # First identify long matches
+  # Determine threshold for "long" matches (e.g., > 12 months or top quartile)
+  match_length_summary <- summary(df$Match.Length)
+  cat("Match length summary (months):\n")
+  print(match_length_summary)
+  
+  # Use 12 months or 3rd quartile as threshold for long matches
+  long_threshold <- max(12, match_length_summary["3rd Qu."])
+  cat("Using threshold of", long_threshold, "months for long matches\n")
+  
+  # Label matches as long or not
+  df_with_length <- df %>%
+    mutate(is_long_match = Match.Length >= long_threshold)
+  
+  # Get unique matches and their length status
+  match_length_status <- df_with_length %>%
+    select(Match.ID.18Char, Match.Length, is_long_match) %>%
+    distinct()
+  
+  # Count long vs short matches
+  long_match_count <- sum(match_length_status$is_long_match)
+  short_match_count <- sum(!match_length_status$is_long_match)
+  
+  cat("Long matches (>=", long_threshold, "months):", long_match_count, "\n")
+  cat("Other matches (<", long_threshold, "months):", short_match_count, "\n")
+  
+  # Prepare text data for analysis
+  # First, identify observations with positive sentiment in long matches
+  positive_notes <- df_with_length %>%
+    filter(is_long_match, bing_sentiment_score > 0, !is.na(cleaned_notes)) %>%
+    select(Match.ID.18Char, cleaned_notes, bing_sentiment_score)
+  
+  # For comparison, also get negative sentiment notes in long matches
+  negative_notes <- df_with_length %>%
+    filter(is_long_match, bing_sentiment_score < 0, !is.na(cleaned_notes)) %>%
+    select(Match.ID.18Char, cleaned_notes, bing_sentiment_score)
+  
+  # Also get positive notes in short matches for comparison
+  positive_short_notes <- df_with_length %>%
+    filter(!is_long_match, bing_sentiment_score > 0, !is.na(cleaned_notes)) %>%
+    select(Match.ID.18Char, cleaned_notes, bing_sentiment_score)
+  
+  cat("Positive sentiment notes in long matches:", nrow(positive_notes), "\n")
+  cat("Negative sentiment notes in long matches:", nrow(negative_notes), "\n")
+  cat("Positive sentiment notes in short matches:", nrow(positive_short_notes), "\n")
+  
+  # Function to tokenize and analyze text
+  analyze_text <- function(notes_df, group_label) {
+    # Skip if no data
+    if(nrow(notes_df) == 0) {
+      cat("No data for", group_label, "\n")
+      return(NULL)
+    }
+    
+    # Tokenize notes to words
+    words <- notes_df %>%
+      unnest_tokens(word, cleaned_notes) %>%
+      
+      anti_join(stop_words, by = "word") %>%
+      
+      filter(!str_detect(word, "^[0-9]+$")) %>%
+      # Add group label
+      mutate(group = group_label)
+    
+    # Get word counts
+    word_counts <- words %>%
+      count(group, word, sort = TRUE)
+    
+    return(word_counts)
+  }
+  
+  # Analyze each group
+  positive_long_words <- analyze_text(positive_notes, "positive_long")
+  negative_long_words <- analyze_text(negative_notes, "negative_long")
+  positive_short_words <- analyze_text(positive_short_notes, "positive_short")
+  
+  # Combine all word counts for comparison
+  all_word_counts <- bind_rows(
+    positive_long_words,
+    negative_long_words,
+    positive_short_words
+  )
+  
+  # Find distinctive words in positive long matches
+  # These are words more common in positive long matches than in other groups
+  
+  # First, get total word counts for each group
+  group_totals <- all_word_counts %>%
+    group_by(group) %>%
+    summarize(total = sum(n))
+  
+  # Join with word counts to calculate proportions
+  word_proportions <- all_word_counts %>%
+    left_join(group_totals, by = "group") %>%
+    mutate(proportion = n / total)
+  
+  # Spread the data to compare proportions across groups
+  word_comparison <- word_proportions %>%
+    select(group, word, proportion) %>%
+    pivot_wider(
+      names_from = group,
+      values_from = proportion,
+      values_fill = list(proportion = 0)
+    )
+  
+  # Calculate distinctiveness of words in positive long matches
+  distinctive_words <- word_comparison
+  
+  # If we have negative long data, compare to that
+  if("negative_long" %in% names(distinctive_words)) {
+    distinctive_words <- distinctive_words %>%
+      mutate(
+        pos_vs_neg_ratio = (positive_long + 0.0001) / (negative_long + 0.0001)
+      )
+  }
+  
+  # If we have positive short data, compare to that
+  if("positive_short" %in% names(distinctive_words)) {
+    distinctive_words <- distinctive_words %>%
+      mutate(
+        long_vs_short_ratio = (positive_long + 0.0001) / (positive_short + 0.0001)
+      )
+  }
+  
+  # Get most distinctive positive words in long matches
+  # These are words that appear more frequently in positive long matches
+  most_distinctive <- distinctive_words %>%
+    filter(positive_long > 0) %>%
+    arrange(desc(positive_long))
+  
+  if("pos_vs_neg_ratio" %in% names(most_distinctive)) {
+    most_distinctive <- most_distinctive %>%
+      arrange(desc(pos_vs_neg_ratio))
+  }
+  
+  # Top 30 most frequent words in positive long matches
+  top_frequent <- positive_long_words %>%
+    slice_head(n = 30)
+  
+  # Create visualizations
+  
+  # Plot top words by frequency
+  freq_plot <- ggplot(top_frequent, aes(x = reorder(word, n), y = n)) +
+    geom_col(fill = "skyblue") +
+    coord_flip() +
+    labs(
+      title = "Most Frequent Words in Positive Sentiment Notes (Long Matches)",
+      x = "Word",
+      y = "Frequency"
+    ) +
+    theme_minimal()
+  
+  # Create word cloud of positive words in long matches
+  # Only create if we have wordcloud package
+  if(requireNamespace("wordcloud", quietly = TRUE)) {
+    # Set up plotting device
+    png("positive_words_wordcloud.png", width = 800, height = 600)
+    
+    # Create wordcloud
+    wordcloud(
+      words = positive_long_words$word,
+      freq = positive_long_words$n,
+      min.freq = 5,
+      max.words = 100,
+      random.order = FALSE,
+      colors = brewer.pal(8, "Dark2")
+    )
+    
+    # Close the device
+    dev.off()
+  }
+  
+  # Return results
+  return(list(
+    long_threshold = long_threshold,
+    positive_long_words = positive_long_words,
+    negative_long_words = negative_long_words,
+    positive_short_words = positive_short_words,
+    distinctive_words = most_distinctive,
+    top_frequent = top_frequent,
+    plot = freq_plot
+  ))
+}
+
+results <- analyze_positive_sentiment_words(df_with_sentiment)
+
+# View most frequent words
+print(results$top_frequent)
+
+# View most distinctive words
+print(head(results$distinctive_words, 20))
+
+# Show the plot
+print(results$plot)
+```
+
+Key phrases in each phase of the match:
+```{r}
+library(randomForest)
+library(wordcloud)
+
+# Function to analyze the most common words in match phases and before closure
+analyze_key_phrases_in_match_phases <- function(df) {
+  # Check if required columns exist
+  required_cols <- c("Match.ID.18Char", "Completion.Date", "cleaned_notes", "Match.Length", "Match.Activation.Date", "Match.Closure.Meeting.Date")
+  missing_cols <- setdiff(required_cols, names(df))
+  
+  if(length(missing_cols) > 0) {
+    warning(paste("Missing some columns:", paste(missing_cols, collapse=", ")))
+    cat("Available columns:", paste(head(names(df), 20), collapse=", "), "...\n")
+  }
+  
+  # 1. Pre-process data to calculate match phases
+  df_processed <- df %>%
+    # Ensure date columns are dates
+    mutate(
+      Completion.Date = as.Date(Completion.Date),
+      Match.Activation.Date = as.Date(Match.Activation.Date),
+      Match.Closure.Meeting.Date = as.Date(Match.Closure.Meeting.Date)
+    ) %>%
+    # Filter out entries with missing key dates or notes
+    filter(!is.na(Completion.Date), !is.na(cleaned_notes), !is.na(Match.Activation.Date)) %>%
+    # Group by match
+    group_by(Match.ID.18Char) %>%
+    mutate(
+      # Calculate first and last dates for this match
+      first_date = min(Completion.Date, na.rm = TRUE),
+      last_date = if(any(!is.na(Match.Closure.Meeting.Date))) {
+        min(Match.Closure.Meeting.Date[!is.na(Match.Closure.Meeting.Date)])
+      } else {
+        max(Completion.Date, na.rm = TRUE)
+      },
+      # Calculate total duration
+      total_duration = as.numeric(difftime(last_date, first_date, units = "days")),
+      # Calculate relative position in match (0-100%)
+      relative_position = if_else(
+        total_duration > 0,
+        100 * as.numeric(difftime(Completion.Date, first_date, units = "days")) / total_duration,
+        0
+      ),
+      # Determine match phase
+      match_phase = case_when(
+        relative_position < 25 ~ "early",
+        relative_position < 75 ~ "middle",
+        TRUE ~ "late"
+      ),
+      # Calculate time to closure (in days)
+      days_to_closure = as.numeric(difftime(last_date, Completion.Date, units = "days")),
+      # Flag entries 3-6 months before closure
+      is_pre_closure = days_to_closure >= 90 & days_to_closure <= 180
+    ) %>%
+    ungroup()
+  
+  # Print summary stats
+  cat("Data summary:\n")
+  cat("- Total observations with valid phase calculation:", nrow(df_processed), "\n")
+  cat("- Unique matches:", length(unique(df_processed$Match.ID.18Char)), "\n")
+  cat("- Observations in each phase:\n")
+  print(table(df_processed$match_phase))
+  cat("- Observations 3-6 months before closure:", sum(df_processed$is_pre_closure), "\n")
+  
+  # 2. Tokenize text and analyze by phase
+  text_by_phase <- df_processed %>%
+    select(Match.ID.18Char, match_phase, cleaned_notes) %>%
+    
+    unnest_tokens(word, cleaned_notes) %>%
+    
+    anti_join(stop_words, by = "word") %>%
+    
+    filter(!str_detect(word, "^[0-9]+$")) %>%
+    
+    count(match_phase, word, sort = TRUE) %>%
+    # Calculate total words per phase for proportion
+    group_by(match_phase) %>%
+    mutate(proportion = n / sum(n)) %>%
+    arrange(match_phase, desc(proportion))
+  
+  # 3. Analyze text specifically 3-6 months before closure
+  text_pre_closure <- df_processed %>%
+    filter(is_pre_closure) %>%
+    select(Match.ID.18Char, cleaned_notes) %>%
+    
+    unnest_tokens(word, cleaned_notes) %>%
+    
+    anti_join(stop_words, by = "word") %>%
+    
+    filter(!str_detect(word, "^[0-9]+$")) %>%
+    
+    count(word, sort = TRUE) %>%
+    
+    mutate(proportion = n / sum(n))
+  
+  # 4. Find words predictive of match length using Random Forest
+  # Prepare data for prediction
+  
+  # Get word frequencies by match
+  match_word_counts <- df_processed %>%
+    select(Match.ID.18Char, cleaned_notes) %>%
+    
+    unnest_tokens(word, cleaned_notes) %>%
+    
+    anti_join(stop_words, by = "word") %>%
+    filter(!str_detect(word, "^[0-9]+$")) %>%
+    filter(!str_detect(word, "[^a-zA-Z]")) %>%
+    filter(!word %in% c("break", "next", "repeat", "if", "else", "for", "while", "function", "in", "return", "switch", "NULL", "NA", "TRUE", "FALSE")) %>%
+    count(Match.ID.18Char, word) %>%
+    group_by(word) %>%
+    filter(n() >= 0.05 * length(unique(df_processed$Match.ID.18Char))) %>%
+    ungroup()
+  
+  # Print sample of words for debugging
+  cat("Sample of words for Random Forest (first 20):\n")
+  print(head(unique(match_word_counts$word), 20))
+  
+  # Convert to document-term matrix format
+  word_predictors <- match_word_counts %>%
+    pivot_wider(
+      id_cols = Match.ID.18Char,
+      names_from = word,
+      values_from = n,
+      values_fill = list(n = 0)
+    )
+  
+  # Get match length outcome
+  match_lengths <- df_processed %>%
+    group_by(Match.ID.18Char) %>%
+    summarize(Match.Length = first(Match.Length))
+  
+  # Join predictors with outcome
+  prediction_data <- word_predictors %>%
+    inner_join(match_lengths, by = "Match.ID.18Char") %>%
+    select(-Match.ID.18Char)  # Remove ID to prepare for model
+  
+  # Check for problematic column names
+  problematic_cols <- names(prediction_data) != "Match.Length" & grepl("^[0-9]|[^a-zA-Z0-9_.]", names(prediction_data))
+  if(any(problematic_cols)) {
+    cat("Warning: Removing", sum(problematic_cols), "columns with problematic names\n")
+    cat("Examples:", paste(head(names(prediction_data)[problematic_cols], 5), collapse=", "), "...\n")
+    prediction_data <- prediction_data[, !problematic_cols | names(prediction_data) == "Match.Length"]
+  }
+  
+  # Ensure Match.Length is in the dataset
+  if(!"Match.Length" %in% names(prediction_data)) {
+    stop("Error: Match.Length column is missing from the prediction data")
+  }
+  
+  # Train a Random Forest model
+  if(ncol(prediction_data) > 2 && nrow(prediction_data) > 30) {
+    cat("Training Random Forest model with", ncol(prediction_data) - 1, "word predictors\n")
+    
+    # Train model
+    set.seed(123)  # For reproducibility
+    rf_model <- randomForest(
+      Match.Length ~ ., 
+      data = prediction_data,
+      ntree = 100,
+      importance = TRUE
+    )
+    
+    # Extract feature importance
+    importance_scores <- importance(rf_model)
+    
+    # Convert to dataframe for easier handling
+    feature_importance <- data.frame(
+      word = rownames(importance_scores),
+      importance = importance_scores[, "%IncMSE"],
+      stringsAsFactors = FALSE
+    ) %>%
+      arrange(desc(importance))
+  } else {
+    cat("Insufficient data for Random Forest model\n")
+    feature_importance <- NULL
+  }
+  
+  # 5. Do the same analysis but only for the 3-6 months before closure
+  if(sum(df_processed$is_pre_closure) > 30) {
+    # Get word frequencies by match for pre-closure period
+    pre_closure_word_counts <- df_processed %>%
+      filter(is_pre_closure) %>%
+      select(Match.ID.18Char, cleaned_notes) %>%
+      
+      unnest_tokens(word, cleaned_notes) %>%
+      
+      anti_join(stop_words, by = "word") %>%
+      filter(!str_detect(word, "[^a-zA-Z]")) %>%
+      filter(!word %in% c("break", "next", "repeat", "if", "else", "for", "while", "function", "in", "return", "switch", "NULL", "NA", "TRUE", "FALSE")) %>%
+      count(Match.ID.18Char, word) %>%
+      group_by(word) %>%
+      filter(n() >= 0.05 * length(unique(df_processed$Match.ID.18Char[df_processed$is_pre_closure]))) %>%
+      ungroup()
+    
+    # Print sample of words for debugging
+    cat("Sample of pre-closure words (first 20):\n")
+    print(head(unique(pre_closure_word_counts$word), 20))
+    
+    # Convert to document-term matrix format
+    pre_closure_predictors <- pre_closure_word_counts %>%
+      pivot_wider(
+        id_cols = Match.ID.18Char,
+        names_from = word,
+        values_from = n,
+        values_fill = list(n = 0)
+      )
+    
+    # Join with match lengths
+    pre_closure_data <- pre_closure_predictors %>%
+      inner_join(match_lengths, by = "Match.ID.18Char") %>%
+      select(-Match.ID.18Char)
+    
+    # Check for problematic column names
+    problematic_cols <- names(pre_closure_data) != "Match.Length" & grepl("^[0-9]|[^a-zA-Z0-9_.]", names(pre_closure_data))
+    if(any(problematic_cols)) {
+      cat("Warning: Removing", sum(problematic_cols), "columns with problematic names from pre-closure data\n")
+      cat("Examples:", paste(head(names(pre_closure_data)[problematic_cols], 5), collapse=", "), "...\n")
+      pre_closure_data <- pre_closure_data[, !problematic_cols | names(pre_closure_data) == "Match.Length"]
+    }
+    
+    # Ensure Match.Length is in the dataset
+    if(!"Match.Length" %in% names(pre_closure_data)) {
+      stop("Error: Match.Length column is missing from the pre-closure data")
+    }
+    
+    # Train Random Forest if we have sufficient data
+    if(ncol(pre_closure_data) > 2 && nrow(pre_closure_data) > 30) {
+      cat("Training pre-closure Random Forest model with", ncol(pre_closure_data) - 1, "word predictors\n")
+      
+      # Train model
+      set.seed(123)  # For reproducibility
+      pre_closure_rf <- randomForest(
+        Match.Length ~ ., 
+        data = pre_closure_data,
+        ntree = 100,
+        importance = TRUE
+      )
+      
+      # Extract feature importance
+      pre_closure_importance <- importance(pre_closure_rf)
+      
+      # Convert to dataframe
+      pre_closure_feature_importance <- data.frame(
+        word = rownames(pre_closure_importance),
+        importance = pre_closure_importance[, "%IncMSE"],
+        stringsAsFactors = FALSE
+      ) %>%
+        arrange(desc(importance))
+    } else {
+      cat("Insufficient data for pre-closure Random Forest model\n")
+      pre_closure_feature_importance <- NULL
+    }
+  } else {
+    cat("Not enough data in the 3-6 month pre-closure period\n")
+    pre_closure_feature_importance <- NULL
+  }
+  
+  # 6. Create visualizations
+  
+  # Plot top words by phase
+  phase_plots <- list()
+  for(phase in unique(text_by_phase$match_phase)) {
+    top_words <- text_by_phase %>%
+      filter(match_phase == phase) %>%
+      slice_head(n = 20)
+    
+    phase_plots[[phase]] <- ggplot(top_words, aes(x = reorder(word, n), y = n)) +
+      geom_col(fill = ifelse(phase == "early", "skyblue", 
+                             ifelse(phase == "middle", "darkgreen", "coral"))) +
+      coord_flip() +
+      labs(
+        title = paste("Top 20 Words in", str_to_title(phase), "Phase"),
+        x = "Word",
+        y = "Frequency"
+      ) +
+      theme_minimal()
+  }
+  
+  # Plot top words in pre-closure period
+  if(nrow(text_pre_closure) > 0) {
+    pre_closure_plot <- ggplot(head(text_pre_closure, 20), aes(x = reorder(word, n), y = n)) +
+      geom_col(fill = "darkred") +
+      coord_flip() +
+      labs(
+        title = "Top 20 Words 3-6 Months Before Closure",
+        x = "Word",
+        y = "Frequency"
+      ) +
+      theme_minimal()
+  } else {
+    pre_closure_plot <- NULL
+  }
+  
+  # Plot top predictive words
+  if(!is.null(feature_importance)) {
+    importance_plot <- ggplot(head(feature_importance, 20), 
+                              aes(x = reorder(word, importance), y = importance)) +
+      geom_col(fill = "purple") +
+      coord_flip() +
+      labs(
+        title = "Top 20 Words Predictive of Match Length",
+        x = "Word",
+        y = "Importance (%IncMSE)"
+      ) +
+      theme_minimal()
+  } else {
+    importance_plot <- NULL
+  }
+  
+  # Plot top pre-closure predictive words
+  if(!is.null(pre_closure_feature_importance)) {
+    pre_closure_importance_plot <- ggplot(head(pre_closure_feature_importance, 20), 
+                                         aes(x = reorder(word, importance), y = importance)) +
+      geom_col(fill = "maroon") +
+      coord_flip() +
+      labs(
+        title = "Top 20 Words Predictive of Match Length (3-6 Months Before Closure)",
+        x = "Word",
+        y = "Importance (%IncMSE)"
+      ) +
+      theme_minimal()
+  } else {
+    pre_closure_importance_plot <- NULL
+  }
+  
+  # Return results
+  return(list(
+    text_by_phase = text_by_phase,
+    text_pre_closure = text_pre_closure,
+    feature_importance = feature_importance,
+    pre_closure_feature_importance = pre_closure_feature_importance,
+    plots = list(
+      phase_plots = phase_plots,
+      pre_closure_plot = pre_closure_plot,
+      importance_plot = importance_plot,
+      pre_closure_importance_plot = pre_closure_importance_plot
+    )
+  ))
+}
+
+# Usage example:
+results <- analyze_key_phrases_in_match_phases(df2)
+
+# View top words by phase
+head(results$text_by_phase %>% filter(match_phase == "early"), 20)
+head(results$text_by_phase %>% filter(match_phase == "middle"), 20)
+head(results$text_by_phase %>% filter(match_phase == "late"), 20)
+
+# View top words 3-6 months before closure
+head(results$text_pre_closure, 20)
+
+# View most predictive words
+head(results$feature_importance, 20)
+head(results$pre_closure_feature_importance, 20)
+
+# Display plots
+results$plots$phase_plots$early
+results$plots$phase_plots$middle
+results$plots$phase_plots$late
+results$plots$pre_closure_plot
+results$plots$importance_plot
+results$plots$pre_closure_importance_plot
+```
+
+
+Sentiment Change during the Matches life cycle:
+```{r}
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+
+# Function to analyze how sentiment changes within match duration (0-100%)
+analyze_match_sentiment_progression <- function(df) {
+  # Print initial data summary
+  cat("Initial data summary:\n")
+  cat("Total observations:", nrow(df), "\n")
+  cat("Unique matches:", length(unique(df$Match.ID.18Char)), "\n")
+  
+  # Ensure we have required columns
+  required_cols <- c("Match.ID.18Char", "Completion.Date", "bing_sentiment_score")
+  if(!all(required_cols %in% names(df))) {
+    stop(paste("Missing required columns:", 
+               paste(setdiff(required_cols, names(df)), collapse=", ")))
+  }
+  
+  # Handle dates properly
+  df_processed <- df %>%
+    filter(!is.na(Match.ID.18Char), !is.na(bing_sentiment_score)) %>%
+    mutate(
+      Date = case_when(
+        inherits(Completion.Date, "Date") ~ Completion.Date,
+        is.character(Completion.Date) ~ as.Date(Completion.Date),
+        TRUE ~ as.Date(NA)
+      )
+    ) %>%
+    filter(!is.na(Date))
+  
+  # Calculate relative position within each match
+  match_trajectories <- df_processed %>%
+    group_by(Match.ID.18Char) %>%
+    filter(n() >= 3) %>%
+    mutate(
+      first_date = min(Date),
+      last_date = max(Date),
+      total_days = as.numeric(difftime(last_date, first_date, units = "days")),
+      relative_position = if_else(
+        total_days > 0,
+        100 * as.numeric(difftime(Date, first_date, units = "days")) / total_days,
+        0
+      )
+    ) %>%
+    mutate(
+      length_category = if("Match.Length" %in% names(.)) {
+        case_when(
+          Match.Length <= 6 ~ "Short (<= 6 months)",
+          Match.Length <= 12 ~ "Medium (6-12 months)",
+          TRUE ~ "Long (> 12 months)"
+        )
+      } else {
+        "All Matches"
+      }
+    ) %>%
+    filter(!is.na(relative_position)) %>%
+    # Create bins for easier analysis
+    mutate(
+      position_bin = cut(
+        relative_position,
+        breaks = seq(0, 100, by = 10),
+        labels = paste0(seq(0, 90, by = 10), "-", seq(10, 100, by = 10), "%"),
+        include.lowest = TRUE
+      )
+    ) %>%
+    ungroup()
+
+  cat("\nProcessed data summary:\n")
+  cat("Matches with valid trajectories:", length(unique(match_trajectories$Match.ID.18Char)), "\n")
+  cat("Valid observations:", nrow(match_trajectories), "\n")
+  
+  # Calculate average sentiment by relative position for each match
+  avg_sentiment_by_position <- match_trajectories %>%
+    group_by(Match.ID.18Char, position_bin) %>%
+    summarize(
+      avg_sentiment = mean(bing_sentiment_score, na.rm = TRUE),
+      observations = n(),
+      .groups = "drop"
+    ) %>%
+    filter(!is.na(avg_sentiment))
+  
+  # Calculate overall trends by position bin (across all matches)
+  overall_sentiment_trend <- match_trajectories %>%
+    group_by(position_bin) %>%
+    summarize(
+      avg_sentiment = mean(bing_sentiment_score, na.rm = TRUE),
+      matches = n_distinct(Match.ID.18Char),
+      observations = n(),
+      .groups = "drop"
+    )
+  
+  # Calculate trends by length category if available
+  if("length_category" %in% names(match_trajectories)) {
+    category_sentiment_trend <- match_trajectories %>%
+      group_by(length_category, position_bin) %>%
+      summarize(
+        avg_sentiment = mean(bing_sentiment_score, na.rm = TRUE),
+        matches = n_distinct(Match.ID.18Char),
+        observations = n(),
+        .groups = "drop"
+      )
+  } else {
+    category_sentiment_trend <- NULL
+  }
+  
+  set.seed(123) # For reproducibility
+  
+  # Count unique matches with enough data
+  matches_with_enough_data <- match_trajectories %>%
+    group_by(Match.ID.18Char) %>%
+    filter(n() >= 4) %>%
+    ungroup() %>%
+    distinct(Match.ID.18Char)
+    
+  sample_size <- min(15, nrow(matches_with_enough_data))
+  sample_matches <- matches_with_enough_data %>%
+    slice_sample(n = sample_size) %>%
+    pull(Match.ID.18Char)
+  
+  if(length(sample_matches) > 0) {
+    individual_plot <- match_trajectories %>%
+      filter(Match.ID.18Char %in% sample_matches) %>%
+      ggplot(aes(x = relative_position, y = bing_sentiment_score, 
+                 group = Match.ID.18Char, color = Match.ID.18Char)) +
+      geom_line(alpha = 0.7) +
+      geom_point(size = 1) +
+      theme_minimal() +
+      labs(
+        title = "Individual Match Sentiment Trajectories",
+        x = "Match Progress (%)",
+        y = "Sentiment Score"
+      ) +
+      theme(legend.position = "none") # Hide legend as it would be too crowded
+  } else {
+    individual_plot <- NULL
+    cat("Not enough matches with sufficient data for individual trajectory plot\n")
+  }
+  
+  # Plot 2: Overall sentiment trend
+  overall_plot <- ggplot(overall_sentiment_trend, 
+                        aes(x = position_bin, y = avg_sentiment, group = 1)) +
+    geom_line(size = 1) +
+    geom_point(size = 3, aes(size = observations)) +
+    theme_minimal() +
+    labs(
+      title = "Overall Sentiment Trend During Match Progression",
+      x = "Match Progress",
+      y = "Average Sentiment Score",
+      size = "Number of\nObservations"
+    ) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  # Plot 3: Sentiment trends by length category (if available)
+  if(!is.null(category_sentiment_trend)) {
+    category_plot <- ggplot(category_sentiment_trend, 
+                           aes(x = position_bin, y = avg_sentiment, 
+                               group = length_category, color = length_category)) +
+      geom_line(size = 1) +
+      geom_point(size = 2) +
+      theme_minimal() +
+      labs(
+        title = "Sentiment Trends by Match Length Category",
+        x = "Match Progress",
+        y = "Average Sentiment Score",
+        color = "Match Length"
+      ) +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  } else {
+    category_plot <- NULL
+  }
+  
+  # Return results
+  return(list(
+    data = match_trajectories,
+    avg_by_position = avg_sentiment_by_position,
+    overall_trend = overall_sentiment_trend,
+    category_trend = category_sentiment_trend,
+    plots = list(
+      individual = individual_plot,
+      overall = overall_plot,
+      category = category_plot
+    )
+  ))
+}
+
+results <- analyze_match_sentiment_progression(df_with_sentiment)
+print(results$overall_trend)
+print(results$plots$overall)
+print(results$plots$category)
+```
+Shorter matches have greater sentiment fluctuation - put this in consolidated
+
+```{r}
+# Appending sentiment analysis
+sentiment_data <- df_with_sentiment %>%
+  select(Match.ID.18Char, Completion.Date, positive, negative, bing_sentiment_score)
+
+df <- df %>%
+  left_join(sentiment_data, by = c("Match.ID.18Char", "Completion.Date")) %>%
+  mutate(
+    positive = ifelse(is.na(positive), 0, positive),
+    negative = ifelse(is.na(negative), 0, negative),
+    bing_sentiment_score = ifelse(is.na(bing_sentiment_score), 0, bing_sentiment_score)
+  )
+df2 <- df2 %>%
+  left_join(sentiment_data, by = c("Match.ID.18Char", "Completion.Date")) %>%
+  mutate(
+    positive = ifelse(is.na(positive), 0, positive),
+    negative = ifelse(is.na(negative), 0, negative),
+    bing_sentiment_score = ifelse(is.na(bing_sentiment_score), 0, bing_sentiment_score)
+  )
+
+str(df2)
+```
+
+```{r}
+# write.csv(df, "df.csv")
+df2
+```
+
+## Economic Analysis
+```{r}
+library(rvest)
+library(dplyr)
+library(lubridate)
+library(tidyr)
+library(httr)
+library(readr)
+library(quantmod)
+
+# Function to get S&P 500 data using quantmod
+get_sp500_data <- function(start_date = "2016-01-01", end_date = Sys.Date()) {
+  # Get S&P 500 data using quantmod
+  getSymbols("^GSPC", from = start_date, to = end_date)
+  
+  # Convert to dataframe
+  sp500_df <- data.frame(Date = index(GSPC), coredata(GSPC))
+  
+  # Rename columns
+  colnames(sp500_df) <- c("Date", "Open", "High", "Low", "Close", "Volume", "Adjusted")
+  
+  # Calculate daily changes
+  sp500_df <- sp500_df %>%
+    arrange(Date) %>%
+    mutate(
+      Daily_Change = Close - lag(Close),
+      Percent_Change = (Daily_Change / lag(Close)) * 100,
+      
+      # Add volatility metric (20-day rolling standard deviation)
+      Volatility_20d = rollapply(Percent_Change, width = 20, FUN = sd, fill = NA, align = "right"),
+      
+      # Add 50-day and 200-day moving averages
+      MA_50d = rollapply(Close, width = 50, FUN = mean, fill = NA, align = "right"),
+      MA_200d = rollapply(Close, width = 200, FUN = mean, fill = NA, align = "right"),
+      
+      # Add bullish/bearish indicator (MA_50d > MA_200d is bullish)
+      Market_Trend = ifelse(MA_50d > MA_200d, "Bullish", "Bearish"),
+      
+      # Add week and month fields for grouping
+      Week = floor_date(Date, "week"),
+      Month = floor_date(Date, "month")
+    )
+  
+  return(sp500_df)
+}
+
+# Function to manually scrape from Yahoo Finance if quantmod doesn't work
+scrape_yahoo_finance <- function(url) {
+  # Add a user agent to avoid being blocked
+  ua <- "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+  
+  # Read the HTML content
+  webpage <- read_html(url, user_agent = ua)
+  
+  # Extract the table
+  tables <- html_nodes(webpage, "table")
+  if(length(tables) == 0) {
+    stop("No tables found on the page")
+  }
+  
+  # The historical data table is typically the first table
+  sp500_table <- html_table(tables[1], fill = TRUE)
+  
+  # Clean the data
+  sp500_data <- sp500_table[[1]] %>%
+    rename(
+      Date = 1,
+      Open = 2,
+      High = 3,
+      Low = 4,
+      Close = 5,
+      `Adj Close` = 6,
+      Volume = 7
+    ) %>%
+    # Convert date to appropriate format
+    mutate(
+      Date = mdy(Date),
+      # Convert numeric columns from character to numeric
+      Open = as.numeric(gsub(",", "", Open)),
+      High = as.numeric(gsub(",", "", High)),
+      Low = as.numeric(gsub(",", "", Low)),
+      Close = as.numeric(gsub(",", "", Close)),
+      `Adj Close` = as.numeric(gsub(",", "", `Adj Close`)),
+      Volume = as.numeric(gsub(",", "", Volume))
+    ) %>%
+    # Calculate daily change
+    arrange(Date) %>%
+    mutate(
+      Daily_Change = Close - lag(Close),
+      Percent_Change = (Daily_Change / lag(Close)) * 100
+    )
+  
+  return(sp500_data)
+}
+
+# Convert Completion.Date to proper Date format
+df$Completion.Date <- as.Date(df$Completion.Date)
+
+# Try to get S&P 500 data using quantmod
+sp500_data <- tryCatch({
+  get_sp500_data("2016-01-01", Sys.Date())
+}, error = function(e) {
+  # If quantmod fails, try manual scraping
+  message("quantmod failed, trying manual scraping instead...")
+  url <- "https://finance.yahoo.com/quote/%5EGSPC/history/?period1=1451606400&period2=1743088132"
+  scrape_yahoo_finance(url)
+})
+
+# Convert completion dates to their closest previous trading days
+get_closest_trading_day <- function(date, trading_dates) {
+  # Handle potential NA inputs
+  if(is.na(date)) return(NA)
+  
+  # Find all trading days on or before the given date
+  valid_dates <- trading_dates[trading_dates <= date]
+  
+  if(length(valid_dates) > 0) {
+    # Return the most recent trading day
+    return(max(valid_dates))
+  } else {
+    return(NA)
+  }
+}
+
+# Get all available trading dates
+trading_dates <- sp500_data$Date
+
+# Convert all completion dates to their closest trading dates
+# Important: Ensure the result stays as a Date object
+df2$Trading_Date <- as.Date(sapply(df2$Completion.Date, 
+                         function(x) get_closest_trading_day(x, trading_dates)),
+                         origin = "1970-01-01")
+
+# Now join with the sp500 data
+df_with_sp500 <- df2 %>%
+  left_join(sp500_data, by = c("Trading_Date" = "Date"))
+
+# Add features that compare match data with market performance
+df_with_sp500 <- df_with_sp500 %>%
+  mutate(
+    # Market condition at match completion
+    Market_Condition = case_when(
+      Percent_Change > 1 ~ "Strong_Positive",
+      Percent_Change > 0 ~ "Positive",
+      Percent_Change < -1 ~ "Strong_Negative",
+      Percent_Change < 0 ~ "Negative",
+      TRUE ~ "Flat"
+    ),
+    
+    # Is market above 50-day moving average?
+    Above_50d_MA = ifelse(!is.na(Close) & !is.na(MA_50d), Close > MA_50d, NA),
+    
+    # Is market above 200-day moving average?
+    Above_200d_MA = ifelse(!is.na(Close) & !is.na(MA_200d), Close > MA_200d, NA),
+    
+    # SP500 level categories (Low, Medium, High based on percentiles)
+    SP500_Level = case_when(
+      !is.na(Close) ~ ntile(Close, 3),
+      TRUE ~ NA_integer_
+    )
+  )
+
+# Convert SP500_Level to factor
+df_with_sp500$SP500_Level <- factor(df_with_sp500$SP500_Level, 
+                                   labels = c("Low", "Medium", "High"))
+
+# Add S&P 500 performance relative to match length
+# Calculate average S&P 500 return during the match period
+df_with_sp500 <- df_with_sp500 %>%
+  mutate(
+    # Calculate end date of match
+    Match_End_Date = Completion.Date + days(round(Match.Length * 30.44)), # approximate days in a month
+    
+    # Flag if match is still active
+    Is_Active = is.na(Closure_Reason_Category)
+  )
+
+# write.csv(df_with_sp500, "df_with_sp500.csv", row.names = FALSE)
+
+# Print summary statistics
+summary_stats <- df_with_sp500 %>%
+  group_by(SP500_Level) %>%
+  summarize(
+    Avg_Match_Length = mean(Match.Length, na.rm = TRUE),
+    Median_Match_Length = median(Match.Length, na.rm = TRUE),
+    Count = n(),
+    Closing_Soon_Rate = mean(closing_soon, na.rm = TRUE) * 100, 
+    Success_Rate = mean(Match.Length > 18, na.rm = TRUE) * 100  # Assuming 18+ months is successful
+  )
+summary_stats2 <- df_with_sp500 %>%
+  group_by(Market_Condition) %>%
+  summarize(
+    Avg_Match_Length = mean(Match.Length, na.rm = TRUE),
+    Median_Match_Length = median(Match.Length, na.rm = TRUE),
+    Count = n(),
+    Closing_Soon_Rate = mean(closing_soon, na.rm = TRUE) * 100, 
+    Success_Rate = mean(Match.Length > 18, na.rm = TRUE) * 100  # Assuming 18+ months is successful
+  )
+
+print(summary_stats2)
+# Market_Condition and SP500_Level may be interesting factors to consider - think about how to consolidate (latest economic log condition?)
+df_with_sp500
+```
+
+```{r}
+df_with_sp500 <- df_with_sp500 %>%
+  mutate(
+    # Create binary feature for economic fall periods
+    Economic_Fall = case_when(
+      # January-April 2020
+      (Completion.Date >= as.Date("2020-01-01") & Completion.Date <= as.Date("2020-04-30")) |
+      # January-September 2022
+      (Completion.Date >= as.Date("2022-01-01") & Completion.Date <= as.Date("2022-09-30")) |
+      # October-December 2018
+      (Completion.Date >= as.Date("2018-10-01") & Completion.Date <= as.Date("2018-12-31")) ~ 1,
+      TRUE ~ 0
+    ),
+    
+    Economic_Growth = 1 - Economic_Fall,
+    
+    Economic_Period = case_when(
+      (Completion.Date >= as.Date("2020-01-01") & Completion.Date <= as.Date("2020-04-30")) ~ "2020_Q1_Downturn",
+      (Completion.Date >= as.Date("2022-01-01") & Completion.Date <= as.Date("2022-09-30")) ~ "2022_Downturn",
+      (Completion.Date >= as.Date("2018-10-01") & Completion.Date <= as.Date("2018-12-31")) ~ "2018_Q4_Downturn",
+      TRUE ~ "Steady_Growth"
+    )
+  )
+
+# Summarize match data by economic period
+economic_summary <- df_with_sp500 %>%
+  group_by(Economic_Period) %>%
+  summarize(
+    Avg_Match_Length = mean(Match.Length, na.rm = TRUE),
+    Median_Match_Length = median(Match.Length, na.rm = TRUE),
+    Count = n(),
+    Success_Rate = mean(Match.Length > 18, na.rm = TRUE) * 100  # Assuming 18+ months is successful
+  )
+
+print(economic_summary)
+
+# Check if economic fall periods had different match outcomes
+fall_vs_growth <- df_with_sp500 %>%
+  group_by(Economic_Fall) %>%
+  summarize(
+    Avg_Match_Length = mean(Match.Length, na.rm = TRUE),
+    Median_Match_Length = median(Match.Length, na.rm = TRUE),
+    Count = n(),
+    Closing_Soon_Rate = mean(closing_soon, na.rm = TRUE) * 100, 
+    Success_Rate = mean(Match.Length > 18, na.rm = TRUE) * 100  # Assuming 18+ months is successful
+  )
+
+print(fall_vs_growth) # may be biased as no recession recently
+```
+
+```{r}
+df_with_sp500_deduped <- df_with_sp500 %>%
+  group_by(Match.ID.18Char, Completion.Date) %>%
+  slice(1) %>%
+  ungroup()
+
+merged_df <- merge(
+  df2,
+  df_with_sp500_deduped[, c("Match.ID.18Char", "Completion.Date", "SP500_Level", "Market_Condition", "Open")],
+  by = c("Match.ID.18Char", "Completion.Date"),
+  all.x = TRUE
+)
+merged_df
+```
+
+
+## consolidate df from here:
+Consolidate df:
+```{r}
+consolidated_df <- df2 %>%
+  arrange(Match.ID.18Char, Completion.Date) %>%
+  group_by(Match.ID.18Char, Completion.Date) %>%
+  # deduplicate any exact duplicates for the same Match.ID.18Char and Completion.Date
+  slice(1) %>%
+  ungroup(Completion.Date) %>%
+  mutate(
+    all_notes = paste(Match.Support.Contact.Notes[!is.na(Match.Support.Contact.Notes) & 
+                                              Match.Support.Contact.Notes != "Unknown"], 
+                     collapse = " || ")
+  ) %>%
+  ungroup()
+
+consolidated_df <- consolidated_df %>%
+  group_by(Match.ID.18Char) %>%
+  slice(1) %>%
+  mutate(
+    Match.Support.Contact.Notes = all_notes
+  ) %>%
+  select(-all_notes) %>%
+  ungroup()
+
+consolidated_df
+```
+Add sentiments:
+```{r}
+# sentiment volatility for each Match.ID.18Char
+sentiment_volatility <- df2 %>%
+  mutate(bing_sentiment_score = as.numeric(bing_sentiment_score)) %>%
+  group_by(Match.ID.18Char) %>%
+  summarize(
+    # Standard deviation of sentiment scores
+    sentiment_volatility_sd = sd(bing_sentiment_score, na.rm = TRUE),
+    # Range of sentiment scores (max - min)
+    sentiment_volatility_range = max(bing_sentiment_score, na.rm = TRUE) - 
+                                min(bing_sentiment_score, na.rm = TRUE),
+    sentiment_count = sum(!is.na(bing_sentiment_score))
+  ) %>%
+  mutate(
+    sentiment_volatility_sd = ifelse(is.na(sentiment_volatility_sd) & sentiment_count == 1, 
+                                    0, sentiment_volatility_sd),
+    sentiment_volatility_range = ifelse(is.na(sentiment_volatility_range) & sentiment_count == 1, 
+                                      0, sentiment_volatility_range)
+  ) %>%
+  select(-sentiment_count) %>%
+  ungroup()
+
+# Merge the sentiment volatility information into consolidated_df
+consolidated_df <- consolidated_df %>%
+  left_join(sentiment_volatility, by = "Match.ID.18Char")
+
+# Examine the distribution of sentiment volatility
+summary(consolidated_df$sentiment_volatility_sd)
+summary(consolidated_df$sentiment_volatility_range)
+summary(consolidated_df$sentiment_sign_changes)
+
+# consolidated_df <- consolidated_df %>%
+#   mutate(
+#     sentiment_volatility_category = case_when(
+#       is.na(sentiment_volatility_sd) ~ "Unknown",
+#       sentiment_volatility_sd == 0 ~ "None",
+#       sentiment_volatility_sd < quantile(sentiment_volatility_sd, 0.25, na.rm = TRUE) ~ "Low",
+#       sentiment_volatility_sd < quantile(sentiment_volatility_sd, 0.75, na.rm = TRUE) ~ "Medium",
+#       TRUE ~ "High"
+#     )
+#   )
+consolidated_df$closing_soon <- NULL
+consolidated_df$positive <- NULL
+consolidated_df$negative <- NULL
+consolidated_df$bing_sentiment_score <- NULL
+consolidated_df$cleaned_notes <- NULL
+consolidated_df$months_to_closure <- NULL
+consolidated_df$age_gap <- NULL
+consolidated_df$closing_soon <- NULL
+consolidated_df$Big.Approved.Date <- NULL
+consolidated_df$Match.Closure.Meeting.Date <- NULL
+consolidated_df$Big.Enrollment..Record.Type <- NULL
+consolidated_df$Big.Car.Access <- NULL
+consolidated_df$Big.Days.Acceptance.to.Match <- NULL
+consolidated_df$Big.Re.Enroll <- NULL
+consolidated_df$Big.Contact..Marital.Status <- NULL
+consolidated_df$Little.RTBM.Date.in.MF <- NULL
+consolidated_df$Little.Participant..Race.Ethnicity <- NULL
+consolidated_df$Little.Birthdate <- NULL
+consolidated_df$Big.Employer.School.Census.Block.Group <- NULL
+consolidated_df$age_gap <- NULL
+consolidated_df$months_to_closure <- NULL
+consolidated_df$cleaned_notes <- NULL
+consolidated_df$Trading_Date <- NULL
+consolidated_df
+```
+
+Add net of last 2 sentiments:
+```{r}
+# Calculate the net of the 2 latest bing sentiment scores for each Match.ID.18Char
+latest_sentiment <- df2 %>%
+  mutate(Completion.Date = as.Date(Completion.Date)) %>%
+  group_by(Match.ID.18Char) %>%
+  arrange(Match.ID.18Char, Completion.Date) %>%
+  summarize(
+    latest_sentiment_net = sum(tail(bing_sentiment_score, 2), na.rm = TRUE),
+    sentiment_count = n(),
+    latest_sentiment = last(bing_sentiment_score),
+    second_latest_sentiment = if(n() >= 2) nth(bing_sentiment_score, n()-1) else NA
+  ) %>%
+  mutate(
+    latest_sentiment_net = ifelse(sentiment_count == 1, 
+                                latest_sentiment, 
+                                latest_sentiment_net)
+  ) %>%
+  select(Match.ID.18Char, latest_sentiment_net) %>%
+  ungroup()
+
+consolidated_df <- consolidated_df %>%
+  left_join(latest_sentiment, by = "Match.ID.18Char")
+
+
+consolidated_df
+```
+
+Log Cadence:
+```{r}
+log_cadence <- df2 %>%
+  mutate(Completion.Date = as.Date(Completion.Date)) %>%
+  group_by(Match.ID.18Char) %>%
+  arrange(Match.ID.18Char, Completion.Date) %>%
+  mutate(
+    days_since_last_log = as.numeric(Completion.Date - lag(Completion.Date))
+  ) %>%
+  # Calculate metrics (skipping the first row of each group which has NA for days_since_last_log)
+  summarize(
+    # Average time between logs in days
+    avg_days_between_logs = mean(days_since_last_log, na.rm = TRUE),
+    
+    # Standard deviation of time between logs
+    sd_days_between_logs = sd(days_since_last_log, na.rm = TRUE),
+    
+    log_count = n()
+  ) %>%
+  mutate(
+    # If there's only one log, set metrics to NA since cadence can't be calculated
+    avg_days_between_logs = ifelse(log_count <= 1, NA, avg_days_between_logs),
+    sd_days_between_logs = ifelse(log_count <= 1, NA, sd_days_between_logs),
+    
+    # If calculations resulted in NaN (e.g., all differences were NA), set to NA
+    avg_days_between_logs = ifelse(is.nan(avg_days_between_logs), NA, avg_days_between_logs),
+    sd_days_between_logs = ifelse(is.nan(sd_days_between_logs), NA, sd_days_between_logs)
+  ) %>%
+  select(Match.ID.18Char, avg_days_between_logs, sd_days_between_logs) %>%
+  ungroup()
+
+consolidated_df <- consolidated_df %>%
+  left_join(log_cadence, by = "Match.ID.18Char")
+
+summary(consolidated_df$avg_days_between_logs)
+summary(consolidated_df$sd_days_between_logs)
+```
+```{r, fig.width=8, fig.height=12}
+# Load required libraries for visualization
+library(ggplot2)
+library(gridExtra)
+library(scales)
+
+# 1. Sentiment volatility vs Match Length
+p1 <- ggplot(consolidated_df, aes(x = sentiment_volatility_sd, y = Match.Length)) +
+  geom_point(alpha = 0.5, color = "steelblue") +
+  geom_smooth(method = "loess", color = "red") +
+  labs(title = "Sentiment Volatility vs Match Length",
+       x = "Sentiment Volatility (Standard Deviation)",
+       y = "Match Length (months)") +
+  theme_minimal()
+
+# 2. Sentiment range vs Match Length
+p2 <- ggplot(consolidated_df, aes(x = sentiment_volatility_range, y = Match.Length)) +
+  geom_point(alpha = 0.5, color = "darkgreen") +
+  geom_smooth(method = "loess", color = "red") +
+  labs(title = "Sentiment Range vs Match Length",
+       x = "Sentiment Range (Max - Min)",
+       y = "Match Length (months)") +
+  theme_minimal()
+
+# 3. Latest sentiment net vs Match Length
+p3 <- ggplot(consolidated_df, aes(x = latest_sentiment_net, y = Match.Length)) +
+  geom_point(alpha = 0.5, color = "purple") +
+  geom_smooth(method = "loess", color = "red") +
+  labs(title = "Latest Sentiment Net vs Match Length",
+       x = "Net of 2 Latest Sentiments",
+       y = "Match Length (months)") +
+  theme_minimal()
+
+# 4. Average days between logs vs Match Length
+p4 <- ggplot(consolidated_df, aes(x = avg_days_between_logs, y = Match.Length)) +
+  geom_point(alpha = 0.5, color = "orange") +
+  geom_smooth(method = "loess", color = "red") +
+  labs(title = "Log Cadence vs Match Length",
+       x = "Average Days Between Logs",
+       y = "Match Length (months)") +
+  theme_minimal() +
+  # Limit x-axis to focus on the main distribution (exclude extreme outliers)
+  xlim(0, quantile(consolidated_df$avg_days_between_logs, 0.95, na.rm = TRUE))
+
+# 5. Standard deviation of days between logs vs Match Length
+p5 <- ggplot(consolidated_df, aes(x = sd_days_between_logs, y = Match.Length)) +
+  geom_point(alpha = 0.5, color = "brown") +
+  geom_smooth(method = "loess", color = "red") +
+  labs(title = "Log Cadence Variability vs Match Length",
+       x = "SD of Days Between Logs",
+       y = "Match Length (months)") +
+  theme_minimal() +
+  # Limit x-axis to focus on the main distribution (exclude extreme outliers)
+  xlim(0, quantile(consolidated_df$sd_days_between_logs, 0.95, na.rm = TRUE))
+
+# Arrange the plots in a grid
+grid.arrange(p1, p2, p3, p4, p5, ncol = 2)
+
+# Calculate correlations
+corr_results <- data.frame(
+  Feature = c("Sentiment Volatility (SD)", "Sentiment Range", "Latest Sentiment Net",
+              "Avg Days Between Logs", "SD Days Between Logs"),
+  Correlation = c(
+    cor(consolidated_df$sentiment_volatility_sd, consolidated_df$Match.Length, use = "pairwise.complete.obs"),
+    cor(consolidated_df$sentiment_volatility_range, consolidated_df$Match.Length, use = "pairwise.complete.obs"),
+    cor(consolidated_df$latest_sentiment_net, consolidated_df$Match.Length, use = "pairwise.complete.obs"),
+    cor(consolidated_df$avg_days_between_logs, consolidated_df$Match.Length, use = "pairwise.complete.obs"),
+    cor(consolidated_df$sd_days_between_logs, consolidated_df$Match.Length, use = "pairwise.complete.obs")
+  )
+)
+
+print(corr_results)
+```
+
+Add economic factors:
+```{r}
+# Extract the most recent market condition for each match
+latest_market_condition <- df_with_sp500 %>%
+  mutate(Completion.Date = as.Date(Completion.Date)) %>%
+  group_by(Match.ID.18Char) %>%
+  arrange(Match.ID.18Char, Completion.Date) %>%
+  slice_tail(n = 1) %>%
+  select(Match.ID.18Char, Market_Condition, SP500_Level) %>%
+  ungroup()
+
+consolidated_df <- consolidated_df %>%
+  left_join(latest_market_condition, by = "Match.ID.18Char")
+
+table(consolidated_df$Market_Condition, useNA = "ifany")
+
+market_analysis <- consolidated_df %>%
+  group_by(Market_Condition) %>%
+  summarize(
+    Avg_Match_Length = mean(Match.Length, na.rm = TRUE),
+    Median_Match_Length = median(Match.Length, na.rm = TRUE),
+    Count = n(),
+    # You can add other metrics of interest
+    Success_Rate = mean(Match.Length > 12, na.rm = TRUE) * 100
+  ) %>%
+  arrange(desc(Avg_Match_Length))
+
+print(market_analysis) # correlation with closing soon***
+```
+
+Words we found later:
+```{r}
+# Define the list of engagement words from the frequency graph above
+engagement_words <- c("time", "check", "month", "support", "email", "match", "event", 
+                     "question", "phone", "talk", "meet", "update", "plan", "school", 
+                     "person", "address", "call", "outing", "schedule", "learn", 
+                     "game", "feel", "connect", "hour", "share", "reach", "form", 
+                     "life", "parent", "goal")
+
+# function to count engagement words in text
+count_engagement_words <- function(text) {
+  if (is.na(text)) return(0)
+  words <- unlist(strsplit(tolower(text), "\\s+"))
+  matches <- sum(words %in% engagement_words)
+  return(matches)
+}
+
+# Calculate engagement word frequency for each record in df2
+df2 <- df2 %>%
+  mutate(
+    engagement_word_count = sapply(cleaned_notes, count_engagement_words),
+    word_count = sapply(cleaned_notes, function(x) {
+      if(is.na(x)) return(0)
+      length(unlist(strsplit(x, "\\s+")))
+    }),
+    engagement_word_density = ifelse(word_count > 0, 
+                                    engagement_word_count / word_count,
+                                    0)
+  )
+
+# Aggregate engagement metrics by Match.ID.18Char
+engagement_metrics <- df2 %>%
+  group_by(Match.ID.18Char) %>%
+  summarize(
+    total_engagement_words = sum(engagement_word_count, na.rm = TRUE),
+    avg_engagement_words = mean(engagement_word_count, na.rm = TRUE),
+    avg_engagement_density = mean(engagement_word_density, na.rm = TRUE),
+    pct_notes_with_engagement = mean(engagement_word_count > 0, na.rm = TRUE) * 100
+  ) %>%
+  ungroup()
+
+consolidated_df <- consolidated_df %>%
+  left_join(engagement_metrics, by = "Match.ID.18Char")
+# ---------
+
+# Examine the relationship between engagement metrics and match length
+engagement_cor <- cor(
+  consolidated_df %>% 
+    select(Match.Length, total_engagement_words, avg_engagement_words, 
+           avg_engagement_density, pct_notes_with_engagement),
+  use = "pairwise.complete.obs"
+)
+
+print("Correlation between engagement metrics and Match Length:")
+print(engagement_cor["Match.Length", ])
+
+# Create a visualization
+ggplot(consolidated_df, aes(x = avg_engagement_density, y = Match.Length)) +
+  geom_point(alpha = 0.5, color = "darkblue") +
+  geom_smooth(method = "loess", color = "red") +
+  labs(title = "Engagement Word Density vs. Match Length",
+       x = "Average Engagement Word Density",
+       y = "Match Length (months)") +
+  theme_minimal()
+```
+
+```{r}
+# Change words
+change_words <- c("college", "university", "new school", "moving", "move", "moved", "relocate", 
+                 "relocation", "job", "career", "employment", "unemployed", "hired", "fired",
+                 "layoff", "graduation", "graduate", "transfer", "transition", "change",
+                 "divorce", "separated", "illness", "sick", "hospital", "surgery",
+                 "baby", "newborn", "pregnant", "pregnancy")
+
+count_change_words <- function(text) {
+  if (is.na(text)) return(0)
+  text_lower <- tolower(text)
+  words <- unlist(strsplit(text_lower, "\\s+"))
+  individual_matches <- sum(words %in% change_words)
+  multi_word_matches <- 0
+  multi_word_phrases <- c("new school", "change of job")
+  for (phrase in multi_word_phrases) {
+    matches <- gregexpr(phrase, text_lower, fixed = TRUE)
+    count <- sum(unlist(matches) > 0)
+    multi_word_matches <- multi_word_matches + count
+  }
+  
+  return(individual_matches + multi_word_matches)
+}
+
+# Calculate change word frequency for each record in df2
+df2 <- df2 %>%
+  mutate(
+    word_count = sapply(cleaned_notes, function(x) {
+      if(is.na(x)) return(0)
+      length(unlist(strsplit(as.character(x), "\\s+")))
+    }),
+    change_word_count = sapply(cleaned_notes, count_change_words),
+    change_word_density = ifelse(word_count > 0, 
+                                change_word_count / word_count,
+                                0)
+  )
+
+# Create binary indicator for presence of any change signals
+df2 <- df2 %>%
+  mutate(has_change_signal = change_word_count > 0)
+
+change_metrics <- df2 %>%
+  group_by(Match.ID.18Char) %>%
+  summarize(
+    # Total change words across all notes
+    total_change_words = sum(change_word_count, na.rm = TRUE),
+    # Average change words per note
+    avg_change_words = mean(change_word_count, na.rm = TRUE),
+    # Average change word density
+    avg_change_density = mean(change_word_density, na.rm = TRUE),
+    # Percentage of notes containing at least one change word
+    pct_notes_with_change = mean(has_change_signal, na.rm = TRUE) * 100,
+    # First occurrence of change signal (note index)
+    notes_before_change = ifelse(sum(has_change_signal, na.rm = TRUE) > 0,
+                               which(has_change_signal)[1], NA)
+  ) %>%
+  ungroup()
+
+consolidated_df <- consolidated_df %>%
+  left_join(change_metrics, by = "Match.ID.18Char")
+#--------
+# Examine the relationship between change metrics and match length
+change_cor <- cor(
+  consolidated_df %>% 
+    select(Match.Length, total_change_words, avg_change_words, 
+           avg_change_density, pct_notes_with_change),
+  use = "pairwise.complete.obs"
+)
+
+print("Correlation between change metrics and Match Length:")
+print(change_cor["Match.Length", ])
+
+# Create visualizations
+p1 <- ggplot(consolidated_df, aes(x = avg_change_density, y = Match.Length)) +
+  geom_point(alpha = 0.5, color = "darkred") +
+  geom_smooth(method = "loess", color = "blue") +
+  labs(title = "Change Word Density vs. Match Length",
+       x = "Average Change Word Density",
+       y = "Match Length (months)") +
+  theme_minimal()
+
+# Create box plot comparing matches with and without change signals
+consolidated_df <- consolidated_df %>%
+  mutate(has_any_change = pct_notes_with_change > 0)
+
+p2 <- ggplot(consolidated_df, aes(x = has_any_change, y = Match.Length, fill = has_any_change)) +
+  geom_boxplot() +
+  labs(title = "Match Length by Presence of Change Signals",
+       x = "Has Change Signals",
+       y = "Match Length (months)") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Arrange the plots
+grid.arrange(p1, p2, ncol = 2)
+```
+Maybe not talking about change is bad??
+
+Add topic 3 to CONSOLIDATED df!:
+```{r}
+consolidated_df <- consolidated_df %>%
+  left_join(topic_df %>% select(Match.ID.18Char, topic_5), by = "Match.ID.18Char")
+
+consolidated_df <- consolidated_df %>%
+  mutate(topic_5 = ifelse(is.na(topic_5), mean(topic_5, na.rm = TRUE), topic_5))
+
+consolidated_df <- consolidated_df %>%
+  mutate(topic_5_scaled = scale(topic_5)[,1]) # transforming to mean = 0, sd=1
+```
+
+```{r}
+ggplot(consolidated_df, aes(x = topic_5, y = Match.Length)) +
+  geom_point(alpha = 0.5, color = "darkblue") +
+  geom_smooth(method = "loess", color = "red") +
+  labs(title = "Topic 3 vs Match Length",
+       x = "Topic 3 Value",
+       y = "Match Length (months)") +
+  theme_minimal()
+```
+
+GEOCODE COLUMNS (ON CONSOLIDATED df):
+```{r}
+# Function to extract latitude and longitude from TigerWeb API
+get_lat_long <- function(geoid) {
+  if (is.na(geoid) || geoid == "") {
+    return(list(lat = NA_real_, lon = NA_real_))  # Explicitly use NA_real_
+  }
+  
+  # Construct the API URL
+  url <- paste0("https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Tracts_Blocks/MapServer/1/query?where=GEOID='", geoid, "'&outFields=INTPTLAT,INTPTLON&returnGeometry=false&f=json")
+  
+  result <- tryCatch({
+    response <- httr::GET(url)
+    
+    if (httr::status_code(response) != 200) {
+      warning(paste("Failed to get data for GEOID:", geoid, "Status code:", httr::status_code(response)))
+      return(list(lat = NA_real_, lon = NA_real_))
+    }
+    
+    # Parse the JSON response
+    content <- httr::content(response, "text", encoding = "UTF-8")
+    parsed <- jsonlite::fromJSON(content)
+    
+    # Extract latitude and longitude
+    if (length(parsed$features) > 0) {
+      lat <- as.numeric(parsed$features$attributes$INTPTLAT)  # Convert to numeric explicitly
+      lon <- as.numeric(parsed$features$attributes$INTPTLON)  # Convert to numeric explicitly
+      
+      # Double check for numeric values
+      if (is.numeric(lat) && is.numeric(lon)) {
+        return(list(lat = lat, lon = lon))
+      } else {
+        warning(paste("Non-numeric coordinates for GEOID:", geoid))
+        return(list(lat = NA_real_, lon = NA_real_))
+      }
+    } else {
+      warning(paste("No data found for GEOID:", geoid))
+      return(list(lat = NA_real_, lon = NA_real_))
+    }
+  }, error = function(e) {
+    warning(paste("Error processing GEOID:", geoid, "Error:", e$message))
+    return(list(lat = NA_real_, lon = NA_real_))
+  })
+  
+  Sys.sleep(0.2)
+  
+  return(result)
+}
+
+# function to add lat/long columns
+add_lat_long_columns <- function(df) {
+  # Create empty columns with explicit numeric type
+  df$Big_Latitude <- NA_real_
+  df$Big_Longitude <- NA_real_
+  df$Little_Latitude <- NA_real_
+  df$Little_Longitude <- NA_real_
+  
+  pb <- txtProgressBar(min = 0, max = nrow(df), style = 3)
+  
+  # Process each row
+  for (i in 1:nrow(df)) {
+    # Get Big's coordinates
+    if (!is.na(df$Big.Home.Census.Block.Group[i]) && df$Big.Home.Census.Block.Group[i] != "") {
+      big_coords <- get_lat_long(df$Big.Home.Census.Block.Group[i])
+      df$Big_Latitude[i] <- big_coords$lat
+      df$Big_Longitude[i] <- big_coords$lon
+    }
+    
+    # Get Little's coordinates
+    if (!is.na(df$Little.Mailing.Address.Census.Block.Group[i]) && df$Little.Mailing.Address.Census.Block.Group[i] != "") {
+      little_coords <- get_lat_long(df$Little.Mailing.Address.Census.Block.Group[i])
+      df$Little_Latitude[i] <- little_coords$lat
+      df$Little_Longitude[i] <- little_coords$lon
+    }
+    
+    # Update progress bar
+    setTxtProgressBar(pb, i)
+  }
+  
+  close(pb)
+  
+  return(df)
+}
+
+# calculate_distance function with better NA handling
+calculate_distance <- function(lat1, lon1, lat2, lon2) {
+  # Early return if any input is NA or not numeric
+  if (is.na(lat1) || is.na(lon1) || is.na(lat2) || is.na(lon2)) {
+    return(NA_real_)
+  }
+  
+  # Ensure all inputs are numeric
+  lat1 <- as.numeric(lat1)
+  lon1 <- as.numeric(lon1)
+  lat2 <- as.numeric(lat2)
+  lon2 <- as.numeric(lon2)
+  
+  # Check again after conversion
+  if (is.na(lat1) || is.na(lon1) || is.na(lat2) || is.na(lon2)) {
+    return(NA_real_)
+  }
+  
+  # Convert degrees to radians
+  lat1 <- lat1 * pi / 180
+  lon1 <- lon1 * pi / 180
+  lat2 <- lat2 * pi / 180
+  lon2 <- lon2 * pi / 180
+  
+  # Earth radius in miles
+  R <- 3958.8
+  
+  # Haversine formula
+  dlon <- lon2 - lon1
+  dlat <- lat2 - lat1
+  a <- sin(dlat/2)^2 + cos(lat1) * cos(lat2) * sin(dlon/2)^2
+  c <- 2 * atan2(sqrt(a), sqrt(1-a))
+  distance <- R * c
+  
+  return(distance)
+}
+
+consolidated_df <- add_lat_long_columns(consolidated_df)
+
+consolidated_df$Distance_Miles <- mapply(
+  calculate_distance,
+  consolidated_df$Big_Latitude, consolidated_df$Big_Longitude, consolidated_df$Little_Latitude, consolidated_df$Little_Longitude
+)
+
+
+
+summary(consolidated_df[, c("Big_Latitude", "Big_Longitude", "Little_Latitude", "Little_Longitude", 
+               "Distance_Miles")])
+
+# df$Distance_Category <- cut(
+#   df$Distance_Miles,
+#   breaks = c(0, 5, 10, 20, Inf),
+#   labels = c("Very Close (<5mi)", "Close (5-10mi)", "Moderate (10-20mi)", "Far (>20mi)"),
+#   include.lowest = TRUE
+# )
+
+```
+
+
+Seasonal analysis:
+```{r}
+write.csv(consolidated_df, "consolidated_df_1.csv")
+```
+
+```{r}
+consolidated_df <- consolidated_df %>%
+  mutate(
+    Big.Level.of.Education = factor(Big.Level.of.Education),
+    Ethnicity_Match = factor(Ethnicity_Match, 
+                            levels = c(TRUE, FALSE),
+                            labels = c("Match", "No Match")),
+    Market_Condition = factor(Market_Condition)
+  )
+```
+
+
+## Survival Model time!!
+```{r}
+# Get rid of NA values
+library(Amelia)
+
+# Visualize missing values using a map
+missmap(consolidated_df, col = c("yellow", "black"), legend = TRUE)
+missing_counts <- colSums(is.na(consolidated_df))
+missing_counts[missing_counts > 0]
+```
+```{r}
+
+```
+
+
+
+
+```{r}
+library(survival)
+library(ggplot2)
+library(gridExtra)
+
+match_surv <- Surv(time = consolidated_df$Match.Length,
+                   event = consolidated_df$Stage)
+
+predictors <- c("Big.Age", "age_gap_abs", "avg_days_between_logs", "sd_days_between_logs", 
+                "sentiment_volatility_sd", "sentiment_volatility_range", "latest_sentiment_net",
+                "total_engagement_words", "avg_engagement_density", "total_change_words", 
+                "avg_change_density")
+
+cat_predictors <- c("Program.Type", "Big.Gender", "Ethnicity_Match", "County_Factor", 
+                    "Big.Level.of.Education", "Market_Condition")
+
+cat_predictors <- cat_predictors[cat_predictors %in% colnames(consolidated_df)]
+
+ph_test_results <- data.frame(Variable = character(),
+                              p_value = numeric(),
+                              PH_assumption_p = numeric(),
+                              stringsAsFactors = FALSE)
+
+for(var in c(predictors, cat_predictors)) {
+  if(sum(!is.na(consolidated_df[[var]])) < nrow(consolidated_df) * 0.5) {
+    cat("Skipping", var, "due to excessive missing values\n")
+    next
+  }
+  
+  # Create formula and fit model
+  formula <- as.formula(paste("match_surv ~", var))
+  
+  tryCatch({
+    fit <- coxph(formula, data = consolidated_df)
+    fit_summary <- summary(fit)
+    # Test proportional hazards assumption
+    ph_test <- cox.zph(fit)
+    # For factor variables, we get multiple p-values, take the global one
+    if(is.factor(consolidated_df[[var]])) {
+      ph_p_value <- ph_test$table["GLOBAL", 3]
+    } else {
+      ph_p_value <- ph_test$table[1, 3]
+    }
+    # For factor variables, we get multiple p-values for coefficients
+    if(is.factor(consolidated_df[[var]])) {
+      var_p_value <- 1 - pchisq(fit_summary$logtest[1], df = length(fit_summary$coefficients[,5]))
+    } else {
+      var_p_value <- fit_summary$coefficients[1, 5]
+    }
+    
+    # Store results
+    ph_test_results <- rbind(ph_test_results, 
+                           data.frame(Variable = var,
+                                     p_value = var_p_value,
+                                     PH_assumption_p = ph_p_value,
+                                     stringsAsFactors = FALSE))
+    
+    # Diagnostic plots for significant variables
+    if(var_p_value < 0.05) {
+      # Plot Schoenfeld residuals to check PH assumption
+      pdf(paste0("ph_assumption_", var, ".pdf"))
+      plot(ph_test)
+      dev.off()
+      
+      # For continuous variables, plot martingale residuals
+      if(!is.factor(consolidated_df[[var]])) {
+        pdf(paste0("martingale_residuals_", var, ".pdf"))
+        res_martingale <- residuals(fit, type = "martingale")
+        plot(consolidated_df[[var]], res_martingale, 
+             xlab = var, ylab = "Martingale Residuals",
+             main = paste("Martingale Residuals vs.", var))
+        lines(lowess(consolidated_df[[var]], res_martingale), col = "red")
+        dev.off()
+      }
+    }
+  }, error = function(e) {
+    cat("Error fitting model for", var, ":", e$message, "\n")
+  })
+}
+
+print(ph_test_results)
+```
+Variables that could potentially be used in a standard Cox model (significant effect and don't violate PH assumption):
+age_gap_abs (borderline but acceptable)
+avg_change_density (not significant, but doesn't violate PH)
+Big.Gender
+Ethnicity_Match
+County_Factor
+Big.Level.of.Education
+
+
+```{r}
+stratified_cox <- coxph(match_surv ~ Big.Gender + Ethnicity_Match + 
+                       strata(Big.Level.of.Education) + log(age_gap_abs + 1) + 
+                       strata(Program.Type) + strata(SP500_Level) + log(avg_change_density + 1) + has_interests + personality_compatibility + has_goals +  Occupation_Category + latest_sentiment_net + log(avg_days_between_logs + 1) + topic_5_scaled +  avg_engagement_words + avg_change_words,
+                       data = consolidated_df)
+
+print(summary(stratified_cox))
+
+ph_test_strat <- cox.zph(stratified_cox)
+print(ph_test_strat)
+```
+
+```{r}
+# Create a time-dependent coefficient model
+time_dependent_model <- coxph(match_surv ~ Big.Gender + Ethnicity_Match + 
+                             strata(Big.Level.of.Education) + log(age_gap_abs + 1) + 
+                             strata(Program.Type) + strata(SP500_Level) + 
+                             log(avg_change_density + 1) + has_interests + 
+                             personality_compatibility + has_goals + 
+                             Occupation_Category + positive + latest_sentiment_net + 
+                             log(avg_days_between_logs + 1) + topic_5_scaled + 
+                             avg_engagement_words + avg_change_words + 
+                             # Add time interactions for violating variables
+                             log(avg_days_between_logs + 1):log(match_surv[,1]) + 
+                             log(avg_change_density + 1):log(match_surv[,1]) + 
+                             avg_change_words:log(match_surv[,1]), 
+                             data = consolidated_df)
+
+
+print(summary(time_dependent_model))
+
+ph_test_strat2 <- cox.zph(time_dependent_model)
+print(ph_test_strat2)
+```
+
+```{r}
+library(survival)
+library(flexsurv)
+
+match_surv <- Surv(time = consolidated_df$Match.Length+1, event = consolidated_df$Stage)
+
+# Test different distributions to find the best fit
+fit_exp <- flexsurvreg(match_surv ~ 1, dist = "exponential", data = consolidated_df)
+fit_weibull <- flexsurvreg(match_surv~ 1, dist = "weibull", data = consolidated_df)
+fit_lognormal <- flexsurvreg(match_surv ~ 1, dist = "lognormal", data = consolidated_df)
+fit_loglogistic <- flexsurvreg(match_surv ~ 1, dist = "llogis", data = consolidated_df)
+
+# Compare AIC to determine best distribution
+aic_results <- data.frame(
+  Distribution = c("Exponential", "Weibull", "Lognormal", "Loglogistic"),
+  AIC = c(AIC(fit_exp), AIC(fit_weibull), AIC(fit_lognormal), AIC(fit_loglogistic))
+)
+# print(aic_results) # log normal is best
+
+aft_model <- survreg(match_surv ~ 
+                    Big.Gender + Ethnicity_Match + 
+                    Big.Level.of.Education + log(age_gap_abs + 1) + 
+                    Program.Type + SP500_Level + 
+                    log(avg_change_density + 1) + has_interests + 
+                    personality_compatibility + has_goals + 
+                    Occupation_Category + latest_sentiment_net + 
+                    log(avg_days_between_logs + 1) + topic_5_scaled + 
+                    avg_engagement_words + avg_change_words,
+                    dist = "lognormal", data = consolidated_df)
+
+# Print model summary
+summary(aft_model)
+
+# Convert to flexsurv format for better visualizations
+flex_aft <- flexsurvreg(match_surv ~ 
+                       Big.Gender + Ethnicity_Match + 
+                       Big.Level.of.Education + log(age_gap_abs + 1) + 
+                       Program.Type + SP500_Level + 
+                       log(avg_change_density + 1) + has_interests + 
+                       personality_compatibility + has_goals + 
+                       Occupation_Category + latest_sentiment_net + 
+                       log(avg_days_between_logs + 1) + topic_5_scaled + 
+                       avg_engagement_words + avg_change_words,
+                       dist = "lnorm", data = consolidated_df)
+
+# Plot survival curves
+plot(flex_aft, type = "survival", main = "Survival Curves", xlab = "Months", ylab = "Survival Probability")
+
+# Create side-by-side plots for hazard and cumulative hazard
+par(mfrow = c(1, 2))
+plot(flex_aft, type = "cumhaz", main = "Cumulative Hazard", xlab = "Months", ylab = "Cumulative Hazard")
+plot(flex_aft, type = "hazard", main = "Hazard Rate", xlab = "Months", ylab = "Hazard Rate")
+par(mfrow = c(1, 1))
+
+# Plot survival curves for different covariate patterns
+# For example, compare gender differences
+newdata <- data.frame(
+  Big.Gender = levels(factor(consolidated_df$Big.Gender)),
+  Ethnicity_Match = rep(levels(factor(consolidated_df$Ethnicity_Match))[1], 2),
+  Big.Level.of.Education = rep(levels(factor(consolidated_df$Big.Level.of.Education))[1], 2),
+  age_gap_abs = rep(median(consolidated_df$age_gap_abs, na.rm = TRUE), 2),
+  Program.Type = rep(levels(factor(consolidated_df$Program.Type))[1], 2),
+  SP500_Level = rep(levels(factor(consolidated_df$SP500_Level))[1], 2),
+  avg_change_density = rep(median(consolidated_df$avg_change_density, na.rm = TRUE), 2),
+  has_interests = factor(rep(1, 2)),
+  personality_compatibility = factor(rep(1, 2)),
+  has_goals = factor(rep(1, 2)),
+  Occupation_Category = rep(levels(factor(consolidated_df$Occupation_Category))[1], 2),
+  latest_sentiment_net = rep(median(consolidated_df$latest_sentiment_net, na.rm = TRUE), 2),
+  avg_days_between_logs = rep(median(consolidated_df$avg_days_between_logs, na.rm = TRUE), 2),
+  topic_5_scaled = rep(median(consolidated_df$topic_5_scaled, na.rm = TRUE), 2),
+  avg_engagement_words = rep(median(consolidated_df$avg_engagement_words, na.rm = TRUE), 2),
+  avg_change_words = rep(median(consolidated_df$avg_change_words, na.rm = TRUE), 2)
+)
+
+# Calculate log transformations for the newdata
+newdata$log_age_gap <- log(newdata$age_gap_abs + 1)
+newdata$log_avg_change_density <- log(newdata$avg_change_density + 1)
+newdata$log_avg_days_between_logs <- log(newdata$avg_days_between_logs + 1)
+
+# Plot survival by gender
+plot(flex_aft, newdata = newdata, type = "survival", 
+     main = "Survival Curves by Gender", xlab = "Months", ylab = "Survival Probability", 
+     ci = TRUE, col = c("blue", "red"),
+     legend = list(x = "topright", legend = levels(factor(consolidated_df$Big.Gender))))
+
+# Interpret coefficients (opposite sign from Cox model)
+# In AFT, positive coefficient = longer survival time
+coef_table <- data.frame(
+  Variable = names(coef(aft_model)),
+  Coefficient = coef(aft_model),
+  Time_Ratio = exp(coef(aft_model)),
+  stringsAsFactors = FALSE
+)
+coef_table <- coef_table[-1, ] # Remove intercept
+coef_table <- coef_table[order(abs(coef_table$Coefficient), decreasing = TRUE), ]
+print(coef_table)
+```
+
+
+
+```{r}
+# crashed my computer
+# library(randomForestSRC)
+# 
+# # Random Survival Forest
+# rsf_model <- rfsrc(Surv(Match.Length, Stage)~ Big.Gender + Ethnicity_Match + 
+#                   Big.Level.of.Education + age_gap_abs + 
+#                   Program.Type + SP500_Level + 
+#                   avg_change_density + has_interests + 
+#                   personality_compatibility + has_goals + 
+#                   Occupation_Category + positive + latest_sentiment_net + 
+#                   avg_days_between_logs + topic_5_scaled + 
+#                   avg_engagement_words + avg_change_words,
+#                   data = consolidated_df, ntree = 100)
+# 
+# # Plot variable importance
+# plot(vimp(rsf_model))
+```
+
