@@ -27,7 +27,7 @@ library(textstem)
 
 ```{r}
 #load the original data
-full_data <- read_csv("Training.csv")
+full_data <- read_csv("../Data/Training.csv")
 #check the number of unique match ID
 length(unique(full_data$`Match ID 18Char`)) #3275
 #calculate the length between calls and match closure date
@@ -311,6 +311,12 @@ glmm2 <- glmer(
 )
 anova(glmm1, glmm2) #fail to reject the reduced model
 summary(glmm2)
+```
+```{r}
+predictions <- predict(glmm2, type = "response", re.form = NULL)
+
+rmse <- sqrt(mean((predictions - ended_match$closure_3_to_6)^2))
+print(paste("RMSE:", round(rmse, 4)))
 ```
 
 
