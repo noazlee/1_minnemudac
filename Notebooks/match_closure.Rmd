@@ -1,0 +1,320 @@
+---
+title: "MinneMUDAC DS - Risk of Closure in 3 to 6 Months"
+subtitle: "Mia Wang"
+output:
+  pdf_document: default
+  html_document: default
+  
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, 
+                      prompt = FALSE, 
+                      message = FALSE, warning = FALSE, fig.align = "center")
+library(tidyverse)
+library(dplyr)
+library(ggplot2) 
+library(broom.mixed)
+library(broom)
+library(lme4)
+library(lubridate)
+library(syuzhet)
+library(textstem)
+
+```
+
+## Data Processing
+
+```{r}
+#load the original data
+full_data <- read_csv("Training.csv")
+#check the number of unique match ID
+length(unique(full_data$`Match ID 18Char`)) #3275
+#calculate the length between calls and match closure date
+full_data$duration <- time_length(interval(full_data$`Completion Date`, 
+                                           full_data$`Match Closure Meeting Date`), 
+                                  "months")
+#filter matches that ended and remove calls less than 3 months before closure
+ended_match <- full_data[!is.na(full_data$duration), ] %>%
+  filter(!is.na(`Match Support Contact Notes`)) %>%
+  select(where(~ !all(is.na(.)))) %>%
+  filter(duration >= 3) %>%
+  mutate(closure_3_to_6 = if_else(duration >= 3 & duration <= 6, 1, 0))
+#check again the number of unique match ID
+length(unique(ended_match$`Match ID 18Char`)) #657
+#check the number of calls for each match
+num_calls <- ended_match %>%
+  count(`Match ID 18Char`, name = "Count")
+```
+
+
+## Natrual Language Processing
+
+```{r}
+#load common stop words
+data("stop_words")
+#define BBBS-specific stop words
+bbbs_stopwords <- c(
+  "say", "ask", "talk", "question", "answer", "mec", "respond", "share", "comment",
+  "l_first_name", "b_first_name", "little", "big", "kit", "match", "bs", "mc", "ls",
+  "child", "activity", "didnt", "jj", "mia", "na", "ms", "activity",
+  "littles", "lfirstname", "llastname", "bigs", "bb", "lb", "bfirstname", "pg",
+  "tpm", "fb", "blastname", "shes", "im", "hasnt", "msc", "safety", "development",
+  "volunteer", "relationship", "bbbs", "concern", "note", "log", "meeting", "contact"
+)
+custom_stopwords <- bind_rows(stop_words, 
+                              tibble(word = bbbs_stopwords, lexicon = "bbbs"))
+#create tokenized and lemmanized cleaned notes 
+ended_match <- ended_match %>%
+  mutate(cleaned_notes = `Match Support Contact Notes` %>%
+           tolower() %>%
+           str_replace_all("[^a-z\\s]", " ") %>%
+           str_squish()) %>%
+  rowwise() %>%
+  mutate(cleaned_notes = {
+    words <- unlist(str_split(cleaned_notes, "\\s+"))
+    lemmas <- lemmatize_words(words)
+    filtered <- lemmas[!lemmas %in% custom_stopwords$word]
+    str_c(filtered, collapse = " ")
+  }) %>%
+  ungroup()
+#define keywords for risk of closure
+closure_keywords <- list(
+  disengagement_risk = c(
+    "ghost", "unresponsive", "not", "no", "ignore", "non", "response", "respond",
+    "reachable", "difficult", "hard", "reach", "miss", "contact", "disconnect", "engage", "unavailable"
+  ),
+  
+  scheduling_issues = c(
+    "busy", "schedule", "reschedule", "cancel", "availability", "meeting", "conflict",
+    "time", "overlap", "inconsistent", "forgot", "late", "attendance", "miss"
+  ),
+  
+  emotional_distress = c(
+    "frustrate", "upset", "angry", "overwhelm", "stress", "emotional", "sad", "anxiety",
+    "disappoint", "burnout"
+  ),
+  
+  relationship_strain = c(
+    "awkward", "conflict", "strain", "argue", "disconnect", "tense", "forced", "lack",
+    "connection", "not", "bond", "negative", "unsuccessful", "issue"
+  ),
+  
+  family_issues = c(
+    "move", "divorce", "custody", "household", "transition", "family", "living", "parent",
+    "guardian", "sibling", "separate", "split", "instability", "step", "home", "crisis", "relocate"
+  ),
+  
+  match_concerns = c(
+    "closure", "terminate", "end", "concern", "issue", "problem", "not work",
+    "unsuccessful", "cancel", "discontinue", "stop", "talk", "discuss", "review"
+  )
+)
+#define keywords for compatibility
+compatibility_keywords <- list(
+  interests = c(
+    "hiking", "fishing", "sports", "basketball", "soccer", "reading", "cooking", "game",
+    "drawing", "painting", "arts", "crafts", "running", "biking", "gymnastics", "skating",
+    "swimming", "yoga", "baking", "outdoors", "gardening", "camping", "lego", "photography",
+    "acting", "dancing", "singing", "puzzle", "animal", "pet", "cat", "dog"
+  ),
+  
+  personality = c(
+    "outgoing", "shy", "introvert", "extrovert", "energetic", "calm", "friendly", "bubbly",
+    "goofy", "creative", "funny", "sweet", "quiet", "thoughtful", "patient", "kind",
+    "reserved", "charismatic", "mature", "respectful", "empathetic", "responsible",
+    "imaginative", "lighthearted", "nurturing", "talkative"
+  ),
+  
+  proximity = c(
+    "close", "far", "mile", "minute", "drive", "commute", "convenient", "traffic",
+    "nearby", "distance", "location"
+  ),
+  
+  commitment = c(
+    "committed", "reliable", "consistent", "temporary", "longterm", "shortterm", "weekly",
+    "monthly", "available", "limited", "sporadic", "engagement", "involve", "attend"
+  ),
+  
+  experience = c(
+    "teacher", "mentor", "coach", "counsel", "nanny", "social", "childcare", "tutor",
+    "support", "educator", "facilitator", "leader", "background", "trainer", "youth"
+  ),
+  
+  preferences = c(
+    "younger", "older", "male", "female", "non-smoker", "religion", "christian", "catholic",
+    "hispanic", "african", "gender", "age", "cultural", "ethnic", "language", "no gun"
+  )
+)
+#combine all keyword categories into one list
+all_keyword_lists <- c(closure_keywords, compatibility_keywords)
+#define a function to create a binary indicator for each category
+create_keyword_flags <- function(df, text_col, keyword_list) {
+  for (category in names(keyword_list)) {
+    pattern <- paste0("\\b(", paste(keyword_list[[category]], collapse = "|"), ")\\b")
+    df[[paste0(category, "_flag")]] <- ifelse(grepl(pattern, df[[text_col]], ignore.case = TRUE), 1, 0)
+  }
+  return(df)
+}
+#apply function to the dataset
+ended_match <- create_keyword_flags(ended_match, "cleaned_notes", all_keyword_lists)
+#view first few rows of flag columns
+ended_match %>%
+  select(contains("_flag")) %>%
+  head()
+```
+
+## EDA
+
+```{r}
+#define risk flag columns
+risk_flag_cols <- names(ended_match)[grepl("_flag$", names(ended_match))]
+ended_match %>%
+  group_by(closure_3_to_6) %>%
+  summarise(across(all_of(risk_flag_cols), mean))
+plot_data <- ended_match %>%
+  select(closure_3_to_6, all_of(risk_flag_cols)) %>%
+  pivot_longer(cols = -closure_3_to_6, names_to = "risk_category", values_to = "flag")
+#bar graphs for risk of closure categories
+ggplot(plot_data, aes(x = risk_category, fill = as.factor(flag))) +
+  geom_bar(position = "fill") + coord_flip() +
+  facet_wrap(~ closure_3_to_6) +
+  labs(y = "Proportion", x = "Risk Category")
+```
+
+```{r}
+#convert race descriptions of the Big and Little to be the same
+race_mapping <- c(
+  "Black or African American" = "Black or African American",
+  "White or Caucasian" = "White",
+  "Hispanic" = "Hispanic or Latino",
+  "Asian" = "Asian",
+  "Pacific Islander - Native Hawaiian" = "Pacific Islander",
+  "Pacific Islander - Other" = "Pacific Islander",
+  "American Indian or Alaska Native" = "American Indian or Alaska Native",
+  "Prefer not to say" = "Prefer not to say",
+  "Other" = "Other",
+  "Asian - Other" = "Asian",
+  "Hispanic - Other Latinx or Spanish origin" = "Hispanic or Latino"
+)
+standardize_race <- function(race_string) {
+  if (is.na(race_string)) return(NA)
+  races <- str_split(race_string, ";")[[1]] %>% 
+    str_trim() %>%  # Trim individual race entries
+    recode(!!!race_mapping) %>% 
+    na.omit() %>% 
+    unique() %>% 
+    sort()
+  if (length(races) == 0) return(NA)
+  if (length(races) == 1) return(races[1])
+  clean_string <- paste(races, collapse = "; ")
+  clean_string <- str_trim(clean_string)
+  clean_string <- str_replace_all(clean_string, "^;\\s*|\\s*;$", "")
+  return(clean_string)
+}
+check_race_match <- function(big_race, little_race) {
+  if (is.na(big_race) || is.na(little_race)) return(0)
+  big_races <- str_split(big_race, ";\\s*")[[1]]
+  little_races <- str_split(little_race, ";\\s*")[[1]]
+  if (length(intersect(big_races, little_races)) > 0) {
+    return(1) 
+  } else {
+    return(0)
+  }
+}
+ended_match <- ended_match %>%
+  mutate(
+    Big_Race_Standard = map_chr(`Big Race/Ethnicity`, standardize_race),
+    Little_Race_Standard = map_chr(`Little Participant: Race/Ethnicity`, standardize_race),
+    Big_Race_Standard = ifelse(Big_Race_Standard == "Prefer not to say", NA, Big_Race_Standard),
+    Little_Race_Standard = ifelse(Little_Race_Standard == "Prefer not to say", NA, Little_Race_Standard)
+  )
+unique(ended_match$Big_Race_Standard)
+unique(ended_match$Little_Race_Standard)
+unique(ended_match$`Big Languages`)
+unique(ended_match$`Little Contact: Language(s) Spoken`)
+#calculate age differences and check if genders and ethnicity are the same
+ended_match <- ended_match %>%
+  mutate(
+    Big_Age = as.numeric(difftime(Sys.Date(), `Big Birthdate`, units = "days")) / 365.25,
+    Little_Age = as.numeric(difftime(Sys.Date(), `Little Birthdate`, units = "days")) / 365.25,
+    age_difference = Big_Age - Little_Age,
+    same_gender = ifelse(`Big Gender` == `Little Gender`, 1, 0),
+    same_race_ethnicity = map2_int(Big_Race_Standard, Little_Race_Standard, check_race_match)
+  )
+#check the distribution of age differences
+ggplot(ended_match, aes(x = age_difference, fill = as.factor(closure_3_to_6))) +
+  geom_histogram() 
+ggplot(ended_match, aes(x = as.factor(closure_3_to_6), y = age_difference, 
+                        fill = as.factor(closure_3_to_6))) +
+  geom_boxplot() 
+#check the proportion of closure in 3 to 6 months across gender and ethnicity categories
+ggplot(ended_match, aes(x = as.factor(same_gender), fill = as.factor(closure_3_to_6))) +
+  geom_bar(position = "fill")
+ggplot(ended_match, aes(x = as.factor(same_race_ethnicity), fill = as.factor(closure_3_to_6))) +
+  geom_bar(position = "fill") 
+```
+
+## Logistic Regression with Mixed Effects
+
+```{r}
+#define a logistic regression model with all risk of closure indicators
+predictors <- c(risk_flag_cols, "age_difference", "same_gender", "same_race_ethnicity")
+glm1 <- glm(closure_3_to_6 ~ .,                   
+            data = ended_match %>% select(closure_3_to_6, all_of(predictors)),                  
+            family = "binomial")
+summary(glm1)
+significant_predictors <- c(
+  "scheduling_issues_flag",
+  "relationship_strain_flag",
+  "match_concerns_flag",
+  "personality_flag",
+  "proximity_flag",
+  "age_difference",
+  "same_gender",
+  "same_race_ethnicity",
+  "emotional_distress_flag",
+  "commitment_flag"
+)
+glm2 <- glm(closure_3_to_6 ~ .,                   
+                     data = ended_match %>% select(closure_3_to_6, all_of(significant_predictors)),                  
+                     family = "binomial")
+summary(glm2)
+#check goodness of fit of Binomial model
+aug <- broom::augment(glm2, type.predict = "response", type.residuals = "deviance")
+broom::glance(glm2) %>% knitr::kable(digit = 3)
+1-pchisq(5198.672, df = 5358)
+#rename match ID 
+ended_match <- ended_match %>%
+  rename(match_id = `Match ID 18Char`)
+#fit a logistic model with a random intercept for each match
+glmm1 <- glmer(
+  formula = closure_3_to_6 ~ age_difference + same_gender + same_race_ethnicity + 
+              scheduling_issues_flag + relationship_strain_flag + 
+              match_concerns_flag + personality_flag + proximity_flag + 
+              emotional_distress_flag + commitment_flag + 
+              (1 | match_id),
+  data = ended_match, 
+  family = binomial
+)
+summary(glmm1)
+(LRT <- 2*as.numeric(logLik(glmm1) - logLik(glm2)))
+0.5*(1-pchisq(LRT, 0)) + 0.5*(1-pchisq(LRT, 1))
+glmm2 <- glmer(
+  formula = closure_3_to_6 ~ age_difference + same_gender +
+              scheduling_issues_flag + relationship_strain_flag + 
+              match_concerns_flag + personality_flag + proximity_flag + 
+              emotional_distress_flag + 
+              (1 | match_id),
+  data = ended_match, 
+  family = binomial
+)
+anova(glmm1, glmm2) #fail to reject the reduced model
+summary(glmm2)
+```
+
+
+
+
+
+
