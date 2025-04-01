@@ -390,7 +390,7 @@ summary(df$months_to_closure)
 head(df %>% select(Match.ID.18Char, Completion.Date, Match.Closure.Meeting.Date, Stage, months_to_closure))
 
 # Save the updated dataframe
-write.csv(df, "df_with_months_to_closure.csv", row.names = FALSE)
+# write.csv(df, "df_with_months_to_closure.csv", row.names = FALSE)
 df
 ```
 
@@ -429,8 +429,125 @@ bbbs_stopwords <- c(
   "relationship", "bbbs", "concern", "note", "log", "meeting", "contact", "time", "check", 
   "month", "support", "email", "match", "meet", "question", "update", "event", "bcc",
   "callahan", "schreiber", "mary", "pm", "am", "msc", "mc", "match", "question", "phone", 
-  "talk", "address", "person", "call", "update", "time", "hour", "form", "reach"
+  "talk", "address", "person", "call", "update", "time", "hour", "form", "reach", 
+  
+  # Relationship/communication terms
+  "share", "feel", "connect", "reminder", "goal", "parent", "hear", "respond", "family",
+  
+  # Time-related terms
+  "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", 
+  "11am", "12pm", "1pm", "2pm", "3pm", "4pm", "5pm", "6pm", "7pm", "8pm", "9am", "10am",
+  "date", "week", "day", "continue", "minute", "quarter", "upcoming", "past", "weekend", "regular", "future",
+  
+  # Process-related terms
+  "plan", "communicate", "mention", "discuss", "start", "begin", "process", "experience", 
+  "progress", "upstairs", "school", "spend", "touch", "bring", "forward", "follow", 
+  "stay", "outing", "schedule", "communication", "conversation", "coordinator", "attend", 
+  "monthly", "change", "learn", "understand", "move", "complete",
+  
+  # Digital/online terms
+  "https", "http", "numb", "information", "google",
+  
+  # Program-specific terms
+  "bigs", "little", "program", "mentor",
+  
+  # Quantifiers
+  "lot", "multiple", "pretty", "plenty", "approximately", "couple",
+  
+  # Administrative/coordination
+  "send", "text", "encourage", "provide", "require", "set", "include", "guideline", 
+  "report", "regard", "response", "register", "speak", "busy", "registration", "newsletter", 
+  "leave", "message", "write", "review", "offer", "suggest", "explain", "engage",
+  
+  # Online/digital references
+  "link", "virtual", "online", "org", "www", "bigstwincities", "bbbsgtc",
+  
+  # Common fillers
+  "don", "didn", "doesn", "due", "haven", "hey", "ago", "recent", "recently", "typically",
+  "happen", "build", "pick",
+  
+  # Generic descriptors
+  "sound", "describe", "express", "agree", "chat", "comfortable",
+  
+  # Location markers
+  "office", "house", "center", "base",
+  
+  # Generic activities
+  "ride", "practice", "walk", "hangout", "fill",
+  
+  # Connection terms
+  "connection", "visit", "receive", "rob", "close",
+  
+  # Evaluation terms
+  "helpful", "positive", "nice",
+  
+  # Additional words from previous list
+  "play", "read", "enjoy", "watch", "eat", "join", "add", "hang", "sign", "listen", 
+  "explore", "grow", "celebrate", "participate", "ensure", "click", "drop", "choose", 
+  "create", "decide", "win", "expect", "inform", "live", "request", "lead", "remember",
+  "catch", "wait", "introduce",
+  
+  # Time-related words
+  "summer", "winter", "fall", "holiday", "december", "january", "february", "march", 
+  "april", "june", "july", "august", "october", "november", "season", "quarterly", 
+  "timestamp", "2020", "spring", "september", "2021", "2022", "tomorrow", "30pm", "00am",
+  "afternoon",
+  
+  # Location terms
+  "city", "park", "minneapolis", "paul", "minnesota", "saint", "twin", "town", "lake",
+  "zoo", "55411",
+  
+  # Program-specific terms
+  "littles", "youth", "community", "staff", "bbbstc", "agency", "team", "library",
+  "participant", "partnership", "student", "matchbook", "tmec",
+  
+  # Family-related terms
+  "mom", "sister", "brother", "guardian", "mother", "baby",
+  
+  # Generic positive/emotional terms
+  "happy", "glad", "excite", "favorite", "wonderful", "awesome", "fun", "hope", "care", 
+  "love", "fine", "special", "warmly", "satisfy", "cool", "super", "feeling",
+  
+  # Activity and event related
+  "game", "picnic", "movie", "video", "art", "food", "sport", "basketball", "watch", 
+  "ice", "bike", "party", "museum", "outdoor", "dinner", "lunch", "project", "class",
+  "skate", "craft", "science", "swim", "bowl", "camp", "trip", "skateboard", "shop",
+  "football", "fish", "gym", "paint", "fair", "field", "run", "cream", "cook", "indoor",
+  "tour", "golf", "color", "bake", "soccer", "animal", "homework",
+  
+  # Additional administrative/process terms
+  "policy", "resource", "opportunity", "option", "ins", "age", "job", "people", 
+  "calendar", "detail", "social", "low", "book", "moment", "easy", "confirm", "involve", 
+  "grade", "situation", "develop", "rule", "personal", "reflect", "night", "break", 
+  "focus", "highlight", "variety", "late", "accomplish", "limit", "adult", "career", 
+  "health", "mind", "trust", "safe", "weather", "difficult", "warm", "boundary", 
+  "location", "survey", "skill", "teen", "college", "anniversary", "page", 
+  "perspective", "rate", "coach", "info", "feedback", "board", "mai", "letter", "hasn", 
+  "post", "role", "expectation", "isn", "invite", "00pm", "birthday", "dad", "topic", 
+  "distance", "discount", "permit", "jeanna", "cell", "successful", "return", "pay", 
+  "chance", "yesterday", "wasn", "space", "suggestion", "life", "idea", "home", "free",
+  "challenge", "engagement", "hard", "count", "issue", "friend", "ticket", "bite", "kid",
+  "list", "gift", "relate", "remind", "approach", "miss", "website", "budget", "additional",
+  "behavior", "reconnect", "friendship", "reply", "travel", "impact", "teach", "decision",
+  "aren", "car", "drive", "specific", "struggle", "step", "permission", "strong", "cultural",
+  "chapter", "notice", "apply", "medium", "money", "card", "firearm", "sense", "photo",
+  "transition", "term", "word", "texting", "body", "prefer", "healthy", "guess", "aware",
+  "consistent", "sit", "routine", "growth", "context", "worry", "difference", "hold",
+  "choice", "world", "cost", "sick", "hesitate", "session", "prior", "quick", "unknown",
+  "raise", "wear", "power", "texted", "regularly", "active", "direct", "type", "shy",
+  "figure", "pass", "respect", "strategy", "quiet", "element", "dog", "main", "ms",
+  "guidance", "katie", "kang", "action", "stuff", "comment", "cancel", "voice", "recommend",
+  "overnight", "navigate", "emergency", "hand", "2", "short", "train", "conflict",
+  "donation", "current", "exchange", "zoom", "enter", "promote", "news", "interact",
+  "reflection", "injury", "picture", "urgent", "energy", "mask", "story", "eye", "bad",
+  "view", "attach", "corner", "public", "strongly", "model", "site", "cold", "head",
+  "advice", "handle", "attention", "draw", "notify", "guide", "sam", "tough", "approval",
+  "common", "sor", "closure", "pandemic", "2018", "dec", "mentee","amaze","service","appointment","success","ready","inbox","30am","content","como","approve","identify","annual", "save", "item", "holidazzle", "individual",
+  
+  # COVID-related
+  "covid", "virtually", "mask", "zoom"
 )
+
 # Create a function for properly cleaning and lemmatizing text
 clean_and_lemmatize_notes <- function(notes) {
   # Handle NA or empty strings
@@ -522,7 +639,7 @@ top_words <- df %>%
   filter(cleaned_notes != "") %>%
   unnest_tokens(word, cleaned_notes) %>%
   count(word, sort = TRUE) %>%
-  head(100) %>%
+  head(200) %>%
   pull(word)
 
 top_words
@@ -532,10 +649,24 @@ Topic model:
 ```{r}
 set.seed(123) 
 library(topicmodels)
+# Force single-threaded processing for reproducability
+Sys.setenv(MC_CORES = "1")
 
-# LDA model with 10 topics
-lda_model <- LDA(dtm, k = 10, control = list(seed = 123))
-
+# Create LDA model with more complete control parameters
+lda_model <- LDA(
+  dtm, 
+  k = 10, 
+  method = "Gibbs",  # Explicitly specify Gibbs sampling
+  control = list(
+    seed = 123,
+    verbose = 0,
+    nstart = 1,      # Force a single start
+    best = TRUE,
+    burnin = 1000,
+    iter = 2000,
+    thin = 500
+  )
+)
 # Extract topic-word probabilities
 topics <- tidy(lda_model, matrix = "beta")
 
@@ -638,6 +769,7 @@ print(topic_5_words)
 ```
 
 ```{r}
+# not good
 topic_5_docs <- doc_topics %>%
   filter(topic == 5) %>%
   arrange(desc(gamma)) %>%
@@ -1029,9 +1161,129 @@ library(tidyr)
 analyze_positive_sentiment_words <- function(df) {
   # Define the problem words to filter out
   bbbs_stopwords <- c(
-    "match", "question", "phone", "talk", "address", "person", "call", "update", 
-    "time", "hour", "form", "reach", "plan", "schedule", "outing", "school",
-    "event", "concern"
+   "said", "asked", "question", "answer", "mec", "responded", "shared", "commented",
+  "l_first_name", "b_first_name", "little", "big", "kit", "match", "bs", "mc", "ls",
+  "child", "volunteer", "safety", "development", "activity", "activities",
+  "relationship", "bbbs", "concern", "note", "log", "meeting", "contact", "time", "check", 
+  "month", "support", "email", "match", "meet", "question", "update", "event", "bcc",
+  "callahan", "schreiber", "mary", "pm", "am", "msc", "mc", "match", "question", "phone", 
+  "talk", "address", "person", "call", "update", "time", "hour", "form", "reach", 
+  
+  # Relationship/communication terms
+  "share", "feel", "connect", "reminder", "goal", "parent", "hear", "respond", "family",
+  
+  # Time-related terms
+  "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", 
+  "11am", "12pm", "1pm", "2pm", "3pm", "4pm", "5pm", "6pm", "7pm", "8pm", "9am", "10am",
+  "date", "week", "day", "continue", "minute", "quarter", "upcoming", "past", "weekend", "regular", "future",
+  
+  # Process-related terms
+  "plan", "communicate", "mention", "discuss", "start", "begin", "process", "experience", 
+  "progress", "upstairs", "school", "spend", "touch", "bring", "forward", "follow", 
+  "stay", "outing", "schedule", "communication", "conversation", "coordinator", "attend", 
+  "monthly", "change", "learn", "understand", "move", "complete",
+  
+  # Digital/online terms
+  "https", "http", "numb", "information", "google",
+  
+  # Program-specific terms
+  "bigs", "little", "program", "mentor",
+  
+  # Quantifiers
+  "lot", "multiple", "pretty", "plenty", "approximately", "couple",
+  
+  # Administrative/coordination
+  "send", "text", "encourage", "provide", "require", "set", "include", "guideline", 
+  "report", "regard", "response", "register", "speak", "busy", "registration", "newsletter", 
+  "leave", "message", "write", "review", "offer", "suggest", "explain", "engage",
+  
+  # Online/digital references
+  "link", "virtual", "online", "org", "www", "bigstwincities", "bbbsgtc",
+  
+  # Common fillers
+  "don", "didn", "doesn", "due", "haven", "hey", "ago", "recent", "recently", "typically",
+  "happen", "build", "pick",
+  
+  # Generic descriptors
+  "sound", "describe", "express", "agree", "chat", "comfortable",
+  
+  # Location markers
+  "office", "house", "center", "base",
+  
+  # Generic activities
+  "ride", "practice", "walk", "hangout", "fill",
+  
+  # Connection terms
+  "connection", "visit", "receive", "rob", "close",
+  
+  # Evaluation terms
+  "helpful", "positive", "nice",
+  
+  # Additional words from previous list
+  "play", "read", "enjoy", "watch", "eat", "join", "add", "hang", "sign", "listen", 
+  "explore", "grow", "celebrate", "participate", "ensure", "click", "drop", "choose", 
+  "create", "decide", "win", "expect", "inform", "live", "request", "lead", "remember",
+  "catch", "wait", "introduce",
+  
+  # Time-related words
+  "summer", "winter", "fall", "holiday", "december", "january", "february", "march", 
+  "april", "june", "july", "august", "october", "november", "season", "quarterly", 
+  "timestamp", "2020", "spring", "september", "2021", "2022", "tomorrow", "30pm", "00am",
+  "afternoon",
+  
+  # Location terms
+  "city", "park", "minneapolis", "paul", "minnesota", "saint", "twin", "town", "lake",
+  "zoo", "55411",
+  
+  # Program-specific terms
+  "littles", "youth", "community", "staff", "bbbstc", "agency", "team", "library",
+  "participant", "partnership", "student", "matchbook", "tmec",
+  
+  # Family-related terms
+  "mom", "sister", "brother", "guardian", "mother", "baby",
+  
+  # Generic positive/emotional terms
+  "happy", "glad", "excite", "favorite", "wonderful", "awesome", "fun", "hope", "care", 
+  "love", "fine", "special", "warmly", "satisfy", "cool", "super", "feeling",
+  
+  # Activity and event related
+  "game", "picnic", "movie", "video", "art", "food", "sport", "basketball", "watch", 
+  "ice", "bike", "party", "museum", "outdoor", "dinner", "lunch", "project", "class",
+  "skate", "craft", "science", "swim", "bowl", "camp", "trip", "skateboard", "shop",
+  "football", "fish", "gym", "paint", "fair", "field", "run", "cream", "cook", "indoor",
+  "tour", "golf", "color", "bake", "soccer", "animal", "homework",
+  
+  # Additional administrative/process terms
+  "policy", "resource", "opportunity", "option", "ins", "age", "job", "people", 
+  "calendar", "detail", "social", "low", "book", "moment", "easy", "confirm", "involve", 
+  "grade", "situation", "develop", "rule", "personal", "reflect", "night", "break", 
+  "focus", "highlight", "variety", "late", "accomplish", "limit", "adult", "career", 
+  "health", "mind", "trust", "safe", "weather", "difficult", "warm", "boundary", 
+  "location", "survey", "skill", "teen", "college", "anniversary", "page", 
+  "perspective", "rate", "coach", "info", "feedback", "board", "mai", "letter", "hasn", 
+  "post", "role", "expectation", "isn", "invite", "00pm", "birthday", "dad", "topic", 
+  "distance", "discount", "permit", "jeanna", "cell", "successful", "return", "pay", 
+  "chance", "yesterday", "wasn", "space", "suggestion", "life", "idea", "home", "free",
+  "challenge", "engagement", "hard", "count", "issue", "friend", "ticket", "bite", "kid",
+  "list", "gift", "relate", "remind", "approach", "miss", "website", "budget", "additional",
+  "behavior", "reconnect", "friendship", "reply", "travel", "impact", "teach", "decision",
+  "aren", "car", "drive", "specific", "struggle", "step", "permission", "strong", "cultural",
+  "chapter", "notice", "apply", "medium", "money", "card", "firearm", "sense", "photo",
+  "transition", "term", "word", "texting", "body", "prefer", "healthy", "guess", "aware",
+  "consistent", "sit", "routine", "growth", "context", "worry", "difference", "hold",
+  "choice", "world", "cost", "sick", "hesitate", "session", "prior", "quick", "unknown",
+  "raise", "wear", "power", "texted", "regularly", "active", "direct", "type", "shy",
+  "figure", "pass", "respect", "strategy", "quiet", "element", "dog", "main", "ms",
+  "guidance", "katie", "kang", "action", "stuff", "comment", "cancel", "voice", "recommend",
+  "overnight", "navigate", "emergency", "hand", "2", "short", "train", "conflict",
+  "donation", "current", "exchange", "zoom", "enter", "promote", "news", "interact",
+  "reflection", "injury", "picture", "urgent", "energy", "mask", "story", "eye", "bad",
+  "view", "attach", "corner", "public", "strongly", "model", "site", "cold", "head",
+  "advice", "handle", "attention", "draw", "notify", "guide", "sam", "tough", "approval",
+  "common", "sor", "closure", "pandemic", "2018", "dec","mentee","amaze","service","appointment","success","ready","inbox","30am","content","como","approve","identify","annual", "save", "item", "holidazzle", "individual",
+  
+  # COVID-related
+  "covid", "virtually", "mask", "zoom"
   )
   
   # Check for the right column
@@ -1178,6 +1430,7 @@ analyze_key_phrases_in_match_phases <- function(df) {
     unnest_tokens(word, cleaned_notes) %>%
     
     anti_join(stop_words, by = "word") %>%
+    filter(!word %in% bbbs_stopwords) %>%
     
     filter(!str_detect(word, "^[0-9]+$")) %>%
     
@@ -2580,7 +2833,7 @@ consolidated_df <- consolidated_df %>%
 library(Amelia)
 
 # Visualize missing values using a map
-missmap(consolidated_df, col = c("yellow", "black"), legend = TRUE)
+missmap(train_data, col = c("yellow", "black"), legend = TRUE)
 missing_counts <- colSums(is.na(consolidated_df))
 missing_counts[missing_counts > 0]
 ```
@@ -2589,7 +2842,7 @@ simple_impute <- function(df) {
   gender_table <- table(df$Big.Gender)
   most_common_gender <- names(gender_table)[which.max(gender_table)]
   df$Big.Gender[is.na(df$Big.Gender)] <- most_common_gender
-
+  
   occupation_table <- table(df$Occupation_Category)
   most_common_occupation <- names(occupation_table)[which.max(occupation_table)]
   df$Occupation_Category[is.na(df$Occupation_Category)] <- most_common_occupation
@@ -2604,13 +2857,14 @@ simple_impute <- function(df) {
   median_distance <- median(df$Distance_Miles, na.rm = TRUE)
   df$Distance_Miles[is.na(df$Distance_Miles)] <- median_distance
   
+  median_sd_logs <- median(df$sd_days_between_logs, na.rm = TRUE)
+  df$sd_days_between_logs[is.na(df$sd_days_between_logs)] <- median_sd_logs
+  
   return(df)
 }
 
 consolidated_df <- simple_impute(consolidated_df)
 ```
-
-
 
 
 ```{r}
@@ -2718,200 +2972,201 @@ print(ph_test_strat)
 
 ```{r}
 # Create a time-dependent coefficient model
-time_dependent_model <- coxph(match_surv ~ Big.Gender + Ethnicity_Match + 
-                             strata(Big.Level.of.Education) + log(age_gap_abs + 1) + 
-                             strata(Program.Type) + strata(SP500_Level) + 
-                             log(avg_change_density + 1) + has_interests + 
-                             personality_compatibility + has_goals + 
-                             Occupation_Category + positive + latest_sentiment_net + 
-                             log(avg_days_between_logs + 1) + topic_5_scaled + 
-                             avg_engagement_words + avg_change_words + 
-                             # Add time interactions for violating variables
-                             log(avg_days_between_logs + 1):log(match_surv[,1]) + 
-                             log(avg_change_density + 1):log(match_surv[,1]) + 
-                             avg_change_words:log(match_surv[,1]), 
-                             data = consolidated_df)
-
-
-print(summary(time_dependent_model))
-
-ph_test_strat2 <- cox.zph(time_dependent_model)
-print(ph_test_strat2)
+# time_dependent_model <- coxph(match_surv ~ Big.Gender + Ethnicity_Match + 
+#                              strata(Big.Level.of.Education) + log(age_gap_abs + 1) + 
+#                              strata(Program.Type) + strata(SP500_Level) + 
+#                              log(avg_change_density + 1) + has_interests + 
+#                              personality_compatibility + has_goals + 
+#                              Occupation_Category + latest_sentiment_net + 
+#                              log(avg_days_between_logs + 1) + topic_5_scaled + 
+#                              avg_engagement_words + avg_change_words + 
+#                              # Add time interactions for violating variables
+#                              log(avg_days_between_logs + 1):log(match_surv[,1]) + 
+#                              log(avg_change_density + 1):log(match_surv[,1]) + 
+#                              avg_change_words:log(match_surv[,1]), 
+#                              data = consolidated_df)
+# 
+# 
+# print(summary(time_dependent_model))
+# 
+# ph_test_strat2 <- cox.zph(time_dependent_model)
+# print(ph_test_strat2)
 ```
 
 ```{r}
-library(survival)
-library(flexsurv)
-
-match_surv <- Surv(time = consolidated_df$Match.Length+1, event = consolidated_df$Stage)
-
-# Test different distributions to find the best fit
-fit_exp <- flexsurvreg(match_surv ~ 1, dist = "exponential", data = consolidated_df)
-fit_weibull <- flexsurvreg(match_surv~ 1, dist = "weibull", data = consolidated_df)
-fit_lognormal <- flexsurvreg(match_surv ~ 1, dist = "lognormal", data = consolidated_df)
-fit_loglogistic <- flexsurvreg(match_surv ~ 1, dist = "llogis", data = consolidated_df)
-
-# Compare AIC to determine best distribution
-aic_results <- data.frame(
-  Distribution = c("Exponential", "Weibull", "Lognormal", "Loglogistic"),
-  AIC = c(AIC(fit_exp), AIC(fit_weibull), AIC(fit_lognormal), AIC(fit_loglogistic))
-)
-# print(aic_results) # log normal is best
-
-aft_model <- survreg(match_surv ~ 
-                    Big.Gender + Ethnicity_Match + 
-                    Big.Level.of.Education + log(age_gap_abs + 1) + 
-                    Program.Type + SP500_Level + 
-                    log(avg_change_density + 1) + has_interests + 
-                    personality_compatibility + has_goals + 
-                    Occupation_Category + latest_sentiment_net + 
-                    log(avg_days_between_logs + 1) + topic_5_scaled + 
-                    avg_engagement_words + avg_change_words,
-                    dist = "lognormal", data = consolidated_df)
-
-# Print model summary
-summary(aft_model)
-
-# Convert to flexsurv format for better visualizations
-flex_aft <- flexsurvreg(match_surv ~ 
-                       Big.Gender + Ethnicity_Match + 
-                       Big.Level.of.Education + log(age_gap_abs + 1) + 
-                       Program.Type + SP500_Level + 
-                       log(avg_change_density + 1) + has_interests + 
-                       personality_compatibility + has_goals + 
-                       Occupation_Category + latest_sentiment_net + 
-                       log(avg_days_between_logs + 1) + topic_5_scaled + 
-                       avg_engagement_words + avg_change_words,
-                       dist = "lnorm", data = consolidated_df)
-
-# Plot survival curves
-plot(flex_aft, type = "survival", main = "Survival Curves", xlab = "Months", ylab = "Survival Probability")
-
-# Create side-by-side plots for hazard and cumulative hazard
-par(mfrow = c(1, 2))
-plot(flex_aft, type = "cumhaz", main = "Cumulative Hazard", xlab = "Months", ylab = "Cumulative Hazard")
-plot(flex_aft, type = "hazard", main = "Hazard Rate", xlab = "Months", ylab = "Hazard Rate")
-par(mfrow = c(1, 1))
-
-# Plot survival curves for different covariate patterns
-# For example, compare gender differences
-newdata <- data.frame(
-  Big.Gender = levels(factor(consolidated_df$Big.Gender)),
-  Ethnicity_Match = rep(levels(factor(consolidated_df$Ethnicity_Match))[1], 2),
-  Big.Level.of.Education = rep(levels(factor(consolidated_df$Big.Level.of.Education))[1], 2),
-  age_gap_abs = rep(median(consolidated_df$age_gap_abs, na.rm = TRUE), 2),
-  Program.Type = rep(levels(factor(consolidated_df$Program.Type))[1], 2),
-  SP500_Level = rep(levels(factor(consolidated_df$SP500_Level))[1], 2),
-  avg_change_density = rep(median(consolidated_df$avg_change_density, na.rm = TRUE), 2),
-  has_interests = factor(rep(1, 2)),
-  personality_compatibility = factor(rep(1, 2)),
-  has_goals = factor(rep(1, 2)),
-  Occupation_Category = rep(levels(factor(consolidated_df$Occupation_Category))[1], 2),
-  latest_sentiment_net = rep(median(consolidated_df$latest_sentiment_net, na.rm = TRUE), 2),
-  avg_days_between_logs = rep(median(consolidated_df$avg_days_between_logs, na.rm = TRUE), 2),
-  topic_5_scaled = rep(median(consolidated_df$topic_5_scaled, na.rm = TRUE), 2),
-  avg_engagement_words = rep(median(consolidated_df$avg_engagement_words, na.rm = TRUE), 2),
-  avg_change_words = rep(median(consolidated_df$avg_change_words, na.rm = TRUE), 2)
-)
-
-# Calculate log transformations for the newdata
-newdata$log_age_gap <- log(newdata$age_gap_abs + 1)
-newdata$log_avg_change_density <- log(newdata$avg_change_density + 1)
-newdata$log_avg_days_between_logs <- log(newdata$avg_days_between_logs + 1)
-
-# Plot survival by gender
-plot(flex_aft, newdata = newdata, type = "survival", 
-     main = "Survival Curves by Gender", xlab = "Months", ylab = "Survival Probability", 
-     ci = TRUE, col = c("blue", "red"),
-     legend = list(x = "topright", legend = levels(factor(consolidated_df$Big.Gender))))
-
-# Interpret coefficients (opposite sign from Cox model)
-# In AFT, positive coefficient = longer survival time
-coef_table <- data.frame(
-  Variable = names(coef(aft_model)),
-  Coefficient = coef(aft_model),
-  Time_Ratio = exp(coef(aft_model)),
-  stringsAsFactors = FALSE
-)
-coef_table <- coef_table[-1, ] # Remove intercept
-coef_table <- coef_table[order(abs(coef_table$Coefficient), decreasing = TRUE), ]
-print(coef_table)
+# NOT WORKING RN - FIX LATER
+# library(survival)
+# library(flexsurv)
+# 
+# match_surv <- Surv(time = consolidated_df$Match.Length+1, event = consolidated_df$Stage)
+# 
+# # Test different distributions to find the best fit
+# fit_exp <- flexsurvreg(match_surv ~ 1, dist = "exponential", data = consolidated_df)
+# fit_weibull <- flexsurvreg(match_surv~ 1, dist = "weibull", data = consolidated_df)
+# fit_lognormal <- flexsurvreg(match_surv ~ 1, dist = "lognormal", data = consolidated_df)
+# fit_loglogistic <- flexsurvreg(match_surv ~ 1, dist = "llogis", data = consolidated_df)
+# 
+# # Compare AIC to determine best distribution
+# aic_results <- data.frame(
+#   Distribution = c("Exponential", "Weibull", "Lognormal", "Loglogistic"),
+#   AIC = c(AIC(fit_exp), AIC(fit_weibull), AIC(fit_lognormal), AIC(fit_loglogistic))
+# )
+# # print(aic_results) # log normal is best
+# 
+# aft_model <- survreg(match_surv ~ 
+#                     Big.Gender + Ethnicity_Match + 
+#                     Big.Level.of.Education + log(age_gap_abs + 1) + 
+#                     Program.Type + SP500_Level + 
+#                     log(avg_change_density + 1) + has_interests + 
+#                     personality_compatibility + has_goals + 
+#                     Occupation_Category + latest_sentiment_net + 
+#                     log(avg_days_between_logs + 1) + topic_5_scaled + 
+#                     avg_engagement_words + avg_change_words,
+#                     dist = "lognormal", data = consolidated_df)
+# 
+# # Print model summary
+# summary(aft_model)
+# 
+# # Convert to flexsurv format for better visualizations
+# flex_aft <- flexsurvreg(match_surv ~ 
+#                        Big.Gender + Ethnicity_Match + 
+#                       Big.Level.of.Education + log(age_gap_abs + 1) + 
+#                       Program.Type + SP500_Level + 
+#                       log(avg_change_density + 1) + has_interests + 
+#                       personality_compatibility + has_goals + 
+#                       Occupation_Category + latest_sentiment_net + 
+#                       log(avg_days_between_logs + 1) + topic_5_scaled + 
+#                       avg_engagement_words + avg_change_words,
+#                        dist = "lnorm", data = consolidated_df)
+# 
+# # Plot survival curves
+# plot(flex_aft, type = "survival", main = "Survival Curves", xlab = "Months", ylab = "Survival Probability")
+# 
+# # Create side-by-side plots for hazard and cumulative hazard
+# par(mfrow = c(1, 2))
+# plot(flex_aft, type = "cumhaz", main = "Cumulative Hazard", xlab = "Months", ylab = "Cumulative Hazard")
+# plot(flex_aft, type = "hazard", main = "Hazard Rate", xlab = "Months", ylab = "Hazard Rate")
+# par(mfrow = c(1, 1))
+# 
+# # Plot survival curves for different covariate patterns
+# # For example, compare gender differences
+# newdata <- data.frame(
+#   Big.Gender = levels(factor(consolidated_df$Big.Gender)),
+#   Ethnicity_Match = rep(levels(factor(consolidated_df$Ethnicity_Match))[1], 2),
+#   Big.Level.of.Education = rep(levels(factor(consolidated_df$Big.Level.of.Education))[1], 2),
+#   age_gap_abs = rep(median(consolidated_df$age_gap_abs, na.rm = TRUE), 2),
+#   Program.Type = rep(levels(factor(consolidated_df$Program.Type))[1], 2),
+#   SP500_Level = rep(levels(factor(consolidated_df$SP500_Level))[1], 2),
+#   avg_change_density = rep(median(consolidated_df$avg_change_density, na.rm = TRUE), 2),
+#   has_interests = factor(rep(1, 2)),
+#   personality_compatibility = factor(rep(1, 2)),
+#   has_goals = factor(rep(1, 2)),
+#   Occupation_Category = rep(levels(factor(consolidated_df$Occupation_Category))[1], 2),
+#   latest_sentiment_net = rep(median(consolidated_df$latest_sentiment_net, na.rm = TRUE), 2),
+#   avg_days_between_logs = rep(median(consolidated_df$avg_days_between_logs, na.rm = TRUE), 2),
+#   topic_5_scaled = rep(median(consolidated_df$topic_5_scaled, na.rm = TRUE), 2),
+#   avg_engagement_words = rep(median(consolidated_df$avg_engagement_words, na.rm = TRUE), 2),
+#   avg_change_words = rep(median(consolidated_df$avg_change_words, na.rm = TRUE), 2)
+# )
+# 
+# # Calculate log transformations for the newdata
+# newdata$log_age_gap <- log(newdata$age_gap_abs + 1)
+# newdata$log_avg_change_density <- log(newdata$avg_change_density + 1)
+# newdata$log_avg_days_between_logs <- log(newdata$avg_days_between_logs + 1)
+# 
+# # Plot survival by gender
+# plot(flex_aft, newdata = newdata, type = "survival", 
+#      main = "Survival Curves by Gender", xlab = "Months", ylab = "Survival Probability", 
+#      ci = TRUE, col = c("blue", "red"),
+#      legend = list(x = "topright", legend = levels(factor(consolidated_df$Big.Gender))))
+# 
+# # Interpret coefficients (opposite sign from Cox model)
+# # In AFT, positive coefficient = longer survival time
+# coef_table <- data.frame(
+#   Variable = names(coef(aft_model)),
+#   Coefficient = coef(aft_model),
+#   Time_Ratio = exp(coef(aft_model)),
+#   stringsAsFactors = FALSE
+# )
+# coef_table <- coef_table[-1, ] # Remove intercept
+# coef_table <- coef_table[order(abs(coef_table$Coefficient), decreasing = TRUE), ]
+# print(coef_table)
 ```
 
 ```{r}
-# Load necessary libraries
-library(survival)
-library(flexsurv)
-library(caret)
-
-# Set seed for reproducibility
-set.seed(123)
-
-# Create training/validation split (80/20)
-train_indices <- createDataPartition(consolidated_df$Match.Length, p = 0.8, list = FALSE)
-train_data <- consolidated_df[train_indices, ]
-validation_data <- consolidated_df[-train_indices, ]
-
-# Print dimensions of the datasets
-cat("Training set dimensions:", dim(train_data), "\n")
-cat("Validation set dimensions:", dim(validation_data), "\n")
-
-# Create survival objects
-train_surv <- Surv(time = train_data$Match.Length+1, event = train_data$Stage)
-validation_surv <- Surv(time = validation_data$Match.Length+1, event = validation_data$Stage)
-
-# Train AFT model on training data
-aft_model <- survreg(train_surv ~ Big.Gender + Ethnicity_Match + 
-                    Big.Level.of.Education + log(age_gap_abs + 1) + Program.Type + 
-                    SP500_Level + log(avg_change_density + 1) + has_interests + 
-                    personality_compatibility + has_goals + Occupation_Category + 
-                    latest_sentiment_net + log(avg_days_between_logs + 1) + topic_5_scaled + 
-                    avg_engagement_words + avg_change_words,
-                    data = train_data, dist = "lognormal")
-
-# Print model summary
-summary_model <- summary(aft_model)
-
-# Make predictions on validation set
-predicted_log_times <- predict(aft_model, newdata = validation_data, type = "response")
-
-# Calculate RMSE
-rmse <- sqrt(mean((predicted_log_times - validation_data$Match.Length)^2, na.rm = TRUE))
-cat("RMSE on validation set:", rmse, "\n")
-
-# Calculate additional error metrics
-mae <- mean(abs(predicted_log_times - validation_data$Match.Length), na.rm = TRUE)
-cat("MAE on validation set:", mae, "\n")
-
-# Calculate R-squared
-ss_total <- sum((validation_data$Match.Length - mean(validation_data$Match.Length, na.rm = TRUE))^2, na.rm = TRUE)
-ss_residual <- sum((validation_data$Match.Length - predicted_log_times)^2, na.rm = TRUE)
-r_squared <- 1 - (ss_residual / ss_total)
-cat("R-squared on validation set:", r_squared, "\n")
-
-# Plot actual vs predicted values
-plot(validation_data$Match.Length, predicted_log_times,
-     xlab = "Actual Match Length (months)",
-     ylab = "Predicted Match Length (months)",
-     main = "Actual vs Predicted Match Length",
-     pch = 19, col = "blue", alpha = 0.5)
-abline(0, 1, col = "red", lwd = 2)  # Add 45-degree line
-
-# Examine prediction errors by actual match length
-errors <- predicted_log_times - validation_data$Match.Length
-plot(validation_data$Match.Length, errors,
-     xlab = "Actual Match Length (months)",
-     ylab = "Prediction Error (months)",
-     main = "Prediction Errors by Actual Match Length",
-     pch = 19, col = "blue", alpha = 0.5)
-abline(h = 0, col = "red", lwd = 2)  # Add horizontal line at 0
-
-# Examine predictions by program type
-boxplot(errors ~ validation_data$Program.Type,
-        xlab = "Program Type",
-        ylab = "Prediction Error (months)",
-        main = "Prediction Errors by Program Type")
-abline(h = 0, col = "red", lwd = 2)  # Add horizontal line at 0
+# # Load necessary libraries
+# library(survival)
+# library(flexsurv)
+# library(caret)
+# 
+# # Set seed for reproducibility
+# set.seed(123)
+# 
+# # Create training/validation split (80/20)
+# train_indices <- createDataPartition(consolidated_df$Match.Length, p = 0.8, list = FALSE)
+# train_data <- consolidated_df[train_indices, ]
+# validation_data <- consolidated_df[-train_indices, ]
+# 
+# # Print dimensions of the datasets
+# cat("Training set dimensions:", dim(train_data), "\n")
+# cat("Validation set dimensions:", dim(validation_data), "\n")
+# 
+# # Create survival objects
+# train_surv <- Surv(time = train_data$Match.Length+1, event = train_data$Stage)
+# validation_surv <- Surv(time = validation_data$Match.Length+1, event = validation_data$Stage)
+# 
+# # Train AFT model on training data
+# aft_model <- survreg(train_surv ~ Big.Gender + Ethnicity_Match + 
+#                     Big.Level.of.Education + log(age_gap_abs + 1) + Program.Type + 
+#                     SP500_Level + log(avg_change_density + 1) + has_interests + 
+#                     personality_compatibility + has_goals + Occupation_Category + 
+#                     latest_sentiment_net + log(avg_days_between_logs + 1) + topic_5_scaled + 
+#                     avg_engagement_words + avg_change_words,
+#                     data = train_data, dist = "lognormal")
+# 
+# # Print model summary
+# summary_model <- summary(aft_model)
+# 
+# # Make predictions on validation set
+# predicted_log_times <- predict(aft_model, newdata = validation_data, type = "response")
+# 
+# # Calculate RMSE
+# rmse <- sqrt(mean((predicted_log_times - validation_data$Match.Length)^2, na.rm = TRUE))
+# cat("RMSE on validation set:", rmse, "\n")
+# 
+# # Calculate additional error metrics
+# mae <- mean(abs(predicted_log_times - validation_data$Match.Length), na.rm = TRUE)
+# cat("MAE on validation set:", mae, "\n")
+# 
+# # Calculate R-squared
+# ss_total <- sum((validation_data$Match.Length - mean(validation_data$Match.Length, na.rm = TRUE))^2, na.rm = TRUE)
+# ss_residual <- sum((validation_data$Match.Length - predicted_log_times)^2, na.rm = TRUE)
+# r_squared <- 1 - (ss_residual / ss_total)
+# cat("R-squared on validation set:", r_squared, "\n")
+# 
+# # Plot actual vs predicted values
+# plot(validation_data$Match.Length, predicted_log_times,
+#      xlab = "Actual Match Length (months)",
+#      ylab = "Predicted Match Length (months)",
+#      main = "Actual vs Predicted Match Length",
+#      pch = 19, col = "blue", alpha = 0.5)
+# abline(0, 1, col = "red", lwd = 2)  # Add 45-degree line
+# 
+# # Examine prediction errors by actual match length
+# errors <- predicted_log_times - validation_data$Match.Length
+# plot(validation_data$Match.Length, errors,
+#      xlab = "Actual Match Length (months)",
+#      ylab = "Prediction Error (months)",
+#      main = "Prediction Errors by Actual Match Length",
+#      pch = 19, col = "blue", alpha = 0.5)
+# abline(h = 0, col = "red", lwd = 2)  # Add horizontal line at 0
+# 
+# # Examine predictions by program type
+# boxplot(errors ~ validation_data$Program.Type,
+#         xlab = "Program Type",
+#         ylab = "Prediction Error (months)",
+#         main = "Prediction Errors by Program Type")
+# abline(h = 0, col = "red", lwd = 2)  # Add horizontal line at 0
 ```
 Doesnt seem to be linear
 
@@ -2939,8 +3194,7 @@ gbm_grid_search <- train(
   Match.Length ~ Big.Gender + Ethnicity_Match + Big.Level.of.Education + age_gap_abs +
     Program.Type + SP500_Level + avg_change_density + has_interests +
     personality_compatibility + has_goals + Occupation_Category + 
-    latest_sentiment_net + avg_days_between_logs + topic_5_scaled +
-    avg_engagement_words + avg_change_words,
+    latest_sentiment_net + avg_days_between_logs + avg_change_words + Distance_Miles,
   data = train_data,
   method = "gbm",
   trControl = cv_control,
@@ -2971,8 +3225,7 @@ final_gbm <- gbm(
   Match.Length ~ Big.Gender + Ethnicity_Match + Big.Level.of.Education + age_gap_abs+
     Program.Type + SP500_Level + avg_change_density + has_interests +
     personality_compatibility + has_goals + Occupation_Category + 
-    latest_sentiment_net + avg_days_between_logs + topic_5_scaled +
-    avg_engagement_words + avg_change_words + Distance_Miles,
+    latest_sentiment_net + avg_days_between_logs + avg_change_words + Distance_Miles,
   data = train_data,
   distribution = "gaussian",
   n.trees = best_n_trees,
@@ -3115,7 +3368,7 @@ Mixed communication patterns - Some have frequent communication, others less fre
 Variable sentiment - Both positive and negative sentiment scores appear in well-predicted matches
 Program distribution - Accurate predictions include both Community and Site-based programs
 
-GBM RMSE: 10.6
+GBM RMSE: 10.79
 
 ## Ridge
 ```{r}
@@ -3253,11 +3506,512 @@ print(head_worst)
 cat("\nTop 10 Best Predictions:\n")
 print(head_best)
 ```
-RMSE: 14.36
+RMSE: 14.3
 
+## xgboost
+```{r}
+# Define specific predictor variables to use
+feature_cols <- c(
+  "Big.Gender", 
+  "Ethnicity_Match", 
+  "Big.Level.of.Education", 
+  "age_gap_abs",
+  "Program.Type", 
+  "SP500_Level", 
+  "avg_change_density", 
+  "has_interests",
+  "personality_compatibility", 
+  "has_goals", 
+  "Occupation_Category", 
+  "latest_sentiment_net", 
+  "avg_days_between_logs", 
+  "sd_days_between_logs",
+  "avg_change_word",
+  "Distance_Miles"
+)
 
+# Verify all features exist in the dataset
+missing_cols <- setdiff(feature_cols, names(train_data))
+if(length(missing_cols) > 0) {
+  print("Warning: These specified features don't exist in the dataset:")
+  print(missing_cols)
+  # Remove missing columns from feature_cols
+  feature_cols <- intersect(feature_cols, names(train_data))
+}
 
+# Verify all selected features are numeric
+non_numeric_cols <- names(train_data[, feature_cols])[sapply(train_data[, feature_cols], function(x) !is.numeric(x))]
+if(length(non_numeric_cols) > 0) {
+  print("Warning: These features are not numeric:")
+  print(non_numeric_cols)
+  # Remove non-numeric columns from feature_cols
+  feature_cols <- setdiff(feature_cols, non_numeric_cols)
+}
 
-## SVR
+print("Final feature columns:")
+print(feature_cols)
 
+# Now use these specific features in your grid search
+xgb_grid <- train(
+  x = train_data[, feature_cols],
+  y = train_data$Match.Length,
+  method = "xgbTree",
+  trControl = train_control,
+  tuneGrid = param_grid_small,
+  metric = "RMSE"
+)
 
+# And in your final model training
+best_model <- xgboost(
+  data = as.matrix(train_data[, feature_cols]),
+  label = train_data$Match.Length,
+  nrounds = xgb_grid$bestTune$nrounds,
+  max_depth = xgb_grid$bestTune$max_depth,
+  eta = xgb_grid$bestTune$eta,
+  gamma = xgb_grid$bestTune$gamma,
+  colsample_bytree = xgb_grid$bestTune$colsample_bytree,
+  min_child_weight = xgb_grid$bestTune$min_child_weight,
+  subsample = xgb_grid$bestTune$subsample,
+  objective = "reg:squarederror",
+  verbose = 0
+)
+
+# And for predictions
+pred_valid <- predict(best_model, as.matrix(validation_prepped[, feature_cols]))
+
+# Calculate metrics
+rmse_value <- rmse(validation_prepped$Match.Length, pred_valid)
+mae_value <- mae(validation_prepped$Match.Length, pred_valid)
+r2_value <- cor(validation_prepped$Match.Length, pred_valid)^2
+
+print(paste("RMSE:", round(rmse_value, 4)))
+print(paste("MAE:", round(mae_value, 4)))
+print(paste("R²:", round(r2_value, 4)))
+
+# Comprehensive prediction analysis
+pred_df <- data.frame(
+  Actual = validation_prepped$Match.Length,
+  Predicted = pred_valid,
+  Error = validation_prepped$Match.Length - pred_valid
+)
+
+# 1. Actual vs Predicted Plot with regression line
+p1 <- ggplot(pred_df, aes(x = Actual, y = Predicted)) +
+  geom_point(alpha = 0.5, color = "blue") +
+  geom_smooth(method = "lm", color = "red", se = TRUE) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  labs(
+    title = "Actual vs Predicted Match Length",
+    subtitle = paste("RMSE =", round(rmse_value, 2), ", R² =", round(r2_value, 2)),
+    x = "Actual Match Length (months)",
+    y = "Predicted Match Length (months)"
+  ) +
+  theme_minimal()
+print(p1)
+
+# 2. Error distribution histogram
+p2 <- ggplot(pred_df, aes(x = Error)) +
+  geom_histogram(bins = 30, fill = "blue", alpha = 0.7) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  labs(
+    title = "Error Distribution",
+    x = "Prediction Error (Actual - Predicted)",
+    y = "Count"
+  ) +
+  theme_minimal()
+print(p2)
+
+# 3. Feature importance
+importance_matrix <- xgb.importance(
+  feature_names = feature_cols,
+  model = best_model
+)
+xgb.plot.importance(importance_matrix, top_n = 15, main = "Feature Importance")
+
+# 4. Residuals vs Predicted values (check for patterns)
+p3 <- ggplot(pred_df, aes(x = Predicted, y = Error)) +
+  geom_point(alpha = 0.5, color = "blue") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  geom_smooth(method = "loess", se = TRUE, color = "purple") +
+  labs(
+    title = "Residuals vs Predicted Values",
+    x = "Predicted Match Length (months)",
+    y = "Residuals"
+  ) +
+  theme_minimal()
+print(p3)
+
+# 5. Prediction accuracy by error quantile
+pred_df$abs_error <- abs(pred_df$Error)
+pred_df$error_quantile <- cut(pred_df$abs_error, 
+                              breaks = quantile(pred_df$abs_error, probs = seq(0, 1, 0.25)),
+                              labels = c("Q1 (Best)", "Q2", "Q3", "Q4 (Worst)"),
+                              include.lowest = TRUE)
+
+# 6. Detailed error analysis by error quantile
+error_summary <- aggregate(pred_df[, c("Actual", "Predicted", "Error", "abs_error")],
+                          by = list(Quantile = pred_df$error_quantile),
+                          FUN = function(x) c(Mean = mean(x), Median = median(x), SD = sd(x)))
+print(error_summary)
+
+# 7. Look for patterns in worst predictions
+worst_predictions <- pred_df[order(-pred_df$abs_error), ][1:20, ]
+print("Worst 20 predictions:")
+print(worst_predictions)
+
+# 8. Error by duration quantile (are we better at predicting short or long matches?)
+pred_df$duration_quantile <- cut(pred_df$Actual, 
+                                breaks = quantile(pred_df$Actual, probs = seq(0, 1, 0.25)),
+                                labels = c("Q1 (Shortest)", "Q2", "Q3", "Q4 (Longest)"),
+                                include.lowest = TRUE)
+
+p4 <- ggplot(pred_df, aes(x = duration_quantile, y = abs_error)) +
+  geom_boxplot(fill = "lightblue") +
+  labs(
+    title = "Prediction Error by Match Duration",
+    x = "Match Duration Quantile",
+    y = "Absolute Error (months)"
+  ) +
+  theme_minimal()
+print(p4)
+
+# 9. Save model for production use
+xgb.save(best_model, "xgboost_match_length_model.model")
+
+# 11.analyze performance by category
+if("Program.Type" %in% names(validation_prepped)) {
+  pred_df$Program.Type <- validation_prepped$Program.Type
+  
+  p5 <- ggplot(pred_df, aes(x = Program.Type, y = abs_error)) +
+    geom_boxplot(fill = "lightgreen") +
+    labs(
+      title = "Prediction Error by Program Type",
+      x = "Program Type",
+      y = "Absolute Error (months)"
+    ) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  print(p5)
+}
+```
+rmse: 11.87
+
+## Models without ongoing matches and before 2024
+```{r}
+filtered_df <- consolidated_df %>%
+  filter(Stage == 1)
+filtered_df # about 1000 records lost
+```
+
+GBM (prev 12.6):
+```{r}
+library(gbm)
+library(caret)
+
+set.seed(123)
+
+train_indices <- createDataPartition(filtered_df$Match.Length, p = 0.8, list = FALSE)
+train_data <- consolidated_df[train_indices, ]
+validation_data <- consolidated_df[-train_indices, ]
+
+param_grid <- expand.grid(
+  n.trees = c(300, 500, 600),
+  interaction.depth = c(5, 7, 9),
+  shrinkage = c(0.01, 0.05, 0.1),
+  n.minobsinnode = c(3, 5, 10)
+)
+
+# Configure trainControl for cross-validation
+cv_control <- trainControl(
+  method = "cv",  # Cross-validation
+  number = 5,     # 5-fold CV
+  verboseIter = TRUE
+)
+
+set.seed(123)
+gbm_grid_search <- train(
+  Match.Length ~ Big.Gender + Ethnicity_Match + Big.Level.of.Education + age_gap_abs +
+    Program.Type + SP500_Level + avg_change_density + has_interests +
+    personality_compatibility + has_goals + Occupation_Category + 
+    latest_sentiment_net + avg_days_between_logs + avg_change_words + Distance_Miles + sd_days_between_logs,
+  data = train_data,
+  method = "gbm",
+  trControl = cv_control,
+  tuneGrid = param_grid,
+  metric = "RMSE",
+  distribution = "gaussian",
+  bag.fraction = 0.8,
+  verbose = FALSE
+)
+
+print(gbm_grid_search)
+print(gbm_grid_search$bestTune)
+
+# Get the best model parameters
+best_n_trees <- gbm_grid_search$bestTune$n.trees
+best_interaction_depth <- gbm_grid_search$bestTune$interaction.depth
+best_shrinkage <- gbm_grid_search$bestTune$shrinkage
+best_n_minobsinnode <- gbm_grid_search$bestTune$n.minobsinnode
+
+cat("Best parameters:\n")
+cat("n.trees:", best_n_trees, "\n")
+cat("interaction.depth:", best_interaction_depth, "\n")
+cat("shrinkage:", best_shrinkage, "\n")
+cat("n.minobsinnode:", best_n_minobsinnode, "\n")
+
+# Train final model with best parameters
+final_gbm <- gbm(
+  Match.Length ~ Big.Gender + Ethnicity_Match + Big.Level.of.Education + age_gap_abs+
+    Program.Type + SP500_Level + avg_change_density + has_interests +
+    personality_compatibility + has_goals + Occupation_Category + 
+    latest_sentiment_net + avg_days_between_logs + avg_change_words + Distance_Miles + sd_days_between_logs ,
+  data = train_data,
+  distribution = "gaussian",
+  n.trees = best_n_trees,
+  interaction.depth = best_interaction_depth,
+  shrinkage = best_shrinkage,
+  n.minobsinnode = best_n_minobsinnode,
+  bag.fraction = 0.8,
+  train.fraction = 1.0,
+  verbose = FALSE
+)
+
+# Make predictions on validation set
+final_predictions <- predict(final_gbm, newdata = validation_data, n.trees = best_n_trees)
+
+# Calculate final metrics
+final_rmse <- sqrt(mean((final_predictions - validation_data$Match.Length)^2, na.rm = TRUE))
+final_mae <- mean(abs(final_predictions - validation_data$Match.Length), na.rm = TRUE)
+final_ss_total <- sum((validation_data$Match.Length - mean(validation_data$Match.Length, na.rm = TRUE))^2, na.rm = TRUE)
+final_ss_residual <- sum((validation_data$Match.Length - final_predictions)^2, na.rm = TRUE)
+final_r_squared <- 1 - (final_ss_residual / final_ss_total)
+
+cat("\nFinal model performance on validation set:\n")
+cat("RMSE:", final_rmse, "\n")
+cat("MAE:", final_mae, "\n")
+cat("R-squared:", final_r_squared, "\n")
+
+# Variable importance
+var_imp <- summary(final_gbm, n.trees = best_n_trees, plotit = FALSE)
+print(var_imp)
+
+# Plot variable importance
+par(mar = c(5, 10, 4, 2))  # Increase left margin for variable names
+barplot(var_imp$rel.inf, 
+        names.arg = var_imp$var, 
+        horiz = TRUE, 
+        las = 1, 
+        cex.names = 0.7, 
+        col = "steelblue",
+        xlab = "Relative Influence", 
+        main = "Variable Importance")
+
+# Plot actual vs predicted values
+plot(validation_data$Match.Length, final_predictions,
+     xlab = "Actual Match Length (months)",
+     ylab = "Predicted Match Length (months)",
+     main = "Actual vs Predicted Match Length",
+     pch = 19, col = "blue")
+abline(0, 1, col = "red", lwd = 2)  # Add 45-degree line
+
+# Plot error distribution
+errors <- final_predictions - validation_data$Match.Length
+hist(errors, breaks = 30, main = "Distribution of Prediction Errors",
+     xlab = "Prediction Error (months)", col = "lightblue", border = "white")
+abline(v = 0, col = "red", lwd = 2)
+
+# Compare with baseline
+baseline_pred <- rep(mean(train_data$Match.Length), nrow(validation_data))
+baseline_rmse <- sqrt(mean((baseline_pred - validation_data$Match.Length)^2, na.rm = TRUE))
+cat("\nBaseline RMSE (mean prediction):", baseline_rmse, "\n")
+cat("Improvement over baseline: ", round((baseline_rmse - final_rmse) / baseline_rmse * 100, 2), "%\n")
+```
+RMSE: 12.6 -> 11.32
+
+XGBOOST (11.87):
+```{r}
+# Define specific predictor variables to use
+feature_cols <- c(
+  "Big.Gender", 
+  "Ethnicity_Match", 
+  "Big.Level.of.Education", 
+  "age_gap_abs",
+  "Program.Type", 
+  "SP500_Level", 
+  "avg_change_density", 
+  "has_interests",
+  "personality_compatibility", 
+  "has_goals", 
+  "Occupation_Category", 
+  "latest_sentiment_net", 
+  "avg_days_between_logs", 
+  "sd_days_between_logs",
+  "avg_change_word",
+  "Distance_Miles"
+)
+
+# Verify all features exist in the dataset
+missing_cols <- setdiff(feature_cols, names(train_data))
+if(length(missing_cols) > 0) {
+  print("Warning: These specified features don't exist in the dataset:")
+  print(missing_cols)
+  # Remove missing columns from feature_cols
+  feature_cols <- intersect(feature_cols, names(train_data))
+}
+
+# Verify all selected features are numeric
+non_numeric_cols <- names(train_data[, feature_cols])[sapply(train_data[, feature_cols], function(x) !is.numeric(x))]
+if(length(non_numeric_cols) > 0) {
+  print("Warning: These features are not numeric:")
+  print(non_numeric_cols)
+  # Remove non-numeric columns from feature_cols
+  feature_cols <- setdiff(feature_cols, non_numeric_cols)
+}
+
+print("Final feature columns:")
+print(feature_cols)
+
+# Now use these specific features in your grid search
+xgb_grid <- train(
+  x = train_data[, feature_cols],
+  y = train_data$Match.Length,
+  method = "xgbTree",
+  trControl = train_control,
+  tuneGrid = param_grid_small,
+  metric = "RMSE"
+)
+
+# And in your final model training
+best_model <- xgboost(
+  data = as.matrix(train_data[, feature_cols]),
+  label = train_data$Match.Length,
+  nrounds = xgb_grid$bestTune$nrounds,
+  max_depth = xgb_grid$bestTune$max_depth,
+  eta = xgb_grid$bestTune$eta,
+  gamma = xgb_grid$bestTune$gamma,
+  colsample_bytree = xgb_grid$bestTune$colsample_bytree,
+  min_child_weight = xgb_grid$bestTune$min_child_weight,
+  subsample = xgb_grid$bestTune$subsample,
+  objective = "reg:squarederror",
+  verbose = 0
+)
+
+# And for predictions
+pred_valid <- predict(best_model, as.matrix(validation_prepped[, feature_cols]))
+
+# Calculate metrics
+rmse_value <- rmse(validation_prepped$Match.Length, pred_valid)
+mae_value <- mae(validation_prepped$Match.Length, pred_valid)
+r2_value <- cor(validation_prepped$Match.Length, pred_valid)^2
+
+print(paste("RMSE:", round(rmse_value, 4)))
+print(paste("MAE:", round(mae_value, 4)))
+print(paste("R²:", round(r2_value, 4)))
+
+# Comprehensive prediction analysis
+pred_df <- data.frame(
+  Actual = validation_prepped$Match.Length,
+  Predicted = pred_valid,
+  Error = validation_prepped$Match.Length - pred_valid
+)
+
+# 1. Actual vs Predicted Plot with regression line
+p1 <- ggplot(pred_df, aes(x = Actual, y = Predicted)) +
+  geom_point(alpha = 0.5, color = "blue") +
+  geom_smooth(method = "lm", color = "red", se = TRUE) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  labs(
+    title = "Actual vs Predicted Match Length",
+    subtitle = paste("RMSE =", round(rmse_value, 2), ", R² =", round(r2_value, 2)),
+    x = "Actual Match Length (months)",
+    y = "Predicted Match Length (months)"
+  ) +
+  theme_minimal()
+print(p1)
+
+# 2. Error distribution histogram
+p2 <- ggplot(pred_df, aes(x = Error)) +
+  geom_histogram(bins = 30, fill = "blue", alpha = 0.7) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  labs(
+    title = "Error Distribution",
+    x = "Prediction Error (Actual - Predicted)",
+    y = "Count"
+  ) +
+  theme_minimal()
+print(p2)
+
+# 3. Feature importance
+importance_matrix <- xgb.importance(
+  feature_names = feature_cols,
+  model = best_model
+)
+xgb.plot.importance(importance_matrix, top_n = 15, main = "Feature Importance")
+
+# 4. Residuals vs Predicted values (check for patterns)
+p3 <- ggplot(pred_df, aes(x = Predicted, y = Error)) +
+  geom_point(alpha = 0.5, color = "blue") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  geom_smooth(method = "loess", se = TRUE, color = "purple") +
+  labs(
+    title = "Residuals vs Predicted Values",
+    x = "Predicted Match Length (months)",
+    y = "Residuals"
+  ) +
+  theme_minimal()
+print(p3)
+
+# 5. Prediction accuracy by error quantile
+pred_df$abs_error <- abs(pred_df$Error)
+pred_df$error_quantile <- cut(pred_df$abs_error, 
+                              breaks = quantile(pred_df$abs_error, probs = seq(0, 1, 0.25)),
+                              labels = c("Q1 (Best)", "Q2", "Q3", "Q4 (Worst)"),
+                              include.lowest = TRUE)
+
+# 6. Detailed error analysis by error quantile
+error_summary <- aggregate(pred_df[, c("Actual", "Predicted", "Error", "abs_error")],
+                          by = list(Quantile = pred_df$error_quantile),
+                          FUN = function(x) c(Mean = mean(x), Median = median(x), SD = sd(x)))
+print(error_summary)
+
+# 7. Look for patterns in worst predictions
+worst_predictions <- pred_df[order(-pred_df$abs_error), ][1:20, ]
+print("Worst 20 predictions:")
+print(worst_predictions)
+
+# 8. Error by duration quantile (are we better at predicting short or long matches?)
+pred_df$duration_quantile <- cut(pred_df$Actual, 
+                                breaks = quantile(pred_df$Actual, probs = seq(0, 1, 0.25)),
+                                labels = c("Q1 (Shortest)", "Q2", "Q3", "Q4 (Longest)"),
+                                include.lowest = TRUE)
+
+p4 <- ggplot(pred_df, aes(x = duration_quantile, y = abs_error)) +
+  geom_boxplot(fill = "lightblue") +
+  labs(
+    title = "Prediction Error by Match Duration",
+    x = "Match Duration Quantile",
+    y = "Absolute Error (months)"
+  ) +
+  theme_minimal()
+print(p4)
+
+# 9. Save model for production use
+xgb.save(best_model, "xgboost_match_length_model.model")
+
+# 11.analyze performance by category
+if("Program.Type" %in% names(validation_prepped)) {
+  pred_df$Program.Type <- validation_prepped$Program.Type
+  
+  p5 <- ggplot(pred_df, aes(x = Program.Type, y = abs_error)) +
+    geom_boxplot(fill = "lightgreen") +
+    labs(
+      title = "Prediction Error by Program Type",
+      x = "Program Type",
+      y = "Absolute Error (months)"
+    ) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  print(p5)
+}
+```
+11.87 -> 11.20
