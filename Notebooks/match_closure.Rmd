@@ -108,7 +108,11 @@ closure_keywords <- list(
   match_concerns = c(
     "closure", "terminate", "end", "concern", "issue", "problem", "not work",
     "unsuccessful", "cancel", "discontinue", "stop", "talk", "discuss", "review"
-  )
+  ),
+  life_changes = c("college", "university", "new school", "moving", "move", "moved", "relocate",
+                 "relocation", "job", "career", "employment", "unemployed", "hired", "fired",
+                 "divorce", "separated", "illness", "sick", "hospital", "surgery",
+                 "baby", "newborn", "pregnant", "pregnancy")
 )
 #define keywords for compatibility
 compatibility_keywords <- list(
