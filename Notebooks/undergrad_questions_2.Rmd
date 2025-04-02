@@ -407,11 +407,11 @@ cat(format_string(df$`Match.Support.Contact.Notes`[1:4]))
 ```
 
 ```{r}
-# View most distinctive words
-print(head(results$distinctive_words, 40))
-
-# Show the plot
-print(results$plot)
+# # View most distinctive words
+# print(head(results$distinctive_words, 40))
+# 
+# # Show the plot
+# print(results$plot)
 ```
 
 
@@ -2202,6 +2202,71 @@ print(fall_vs_growth) # may be biased as no recession recently
 ```
 
 ```{r}
+library(ggplot2)
+library(dplyr)
+library(forcats)
+
+# Create market_data from df_with_sp500
+market_data <- df_with_sp500 %>%
+  filter(Market_Condition != "Flat") %>%
+  group_by(Market_Condition) %>%
+  summarize(
+    Closing_Soon_Rate = mean(closing_soon, na.rm = TRUE) * 100,
+    Avg_Match_Length = mean(Match.Length, na.rm = TRUE),
+    Median_Match_Length = median(Match.Length, na.rm = TRUE),
+    Count = n()
+  )
+
+# View the created dataframe
+print(market_data)
+
+# Convert Market_Condition to a factor with specific order
+market_data$Market_Condition <- factor(
+  market_data$Market_Condition,
+  levels = c("Strong_Negative", "Negative", "Flat", "Positive", "Strong_Positive")
+)
+
+# Create the bar chart with ordered categories
+ggplot(market_data, aes(x = Market_Condition, y = Closing_Soon_Rate, fill = Market_Condition)) +
+  geom_bar(stat = "identity", width = 0.7, alpha = 0.8) +
+  geom_text(aes(label = sprintf("%.1f%%", Closing_Soon_Rate)), 
+            position = position_stack(vjust = 0.5), 
+            color = "black", size = 4) +
+  scale_fill_manual(values = c(
+    "Strong_Negative" = "#FF6666",
+    "Negative" = "#FF9999", 
+    "Flat" = "#CCCCCC",
+    "Positive" = "#99CC99",
+    "Strong_Positive" = "#66CC66"
+  )) +
+  labs(
+    title = "Closing Soon Rate by Market Condition",
+    subtitle = "Ordered from Strong Negative to Strong Positive",
+    x = "Market Condition",
+    y = "Closing Soon Rate (%)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 0),
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5),
+    legend.position = "none"
+  )
+
+# Optional: Also create a table for easier reference
+market_table <- market_data %>%
+  arrange(factor(Market_Condition, levels = c("Strong_Negative", "Negative", "Flat", "Positive", "Strong_Positive"))) %>%
+  select(Market_Condition, Closing_Soon_Rate, Avg_Match_Length, Count) %>%
+  mutate(
+    Closing_Soon_Rate = sprintf("%.1f%%", Closing_Soon_Rate),
+    Avg_Match_Length = round(Avg_Match_Length, 1)
+  )
+
+print(market_table)
+```
+
+
+```{r}
 df_with_sp500_deduped <- df_with_sp500 %>%
   group_by(Match.ID.18Char, Completion.Date) %>%
   slice(1) %>%
@@ -2829,15 +2894,6 @@ consolidated_df <- consolidated_df %>%
 
 ## Survival Model time!!
 ```{r}
-# Get rid of NA values
-library(Amelia)
-
-# Visualize missing values using a map
-missmap(train_data, col = c("yellow", "black"), legend = TRUE)
-missing_counts <- colSums(is.na(consolidated_df))
-missing_counts[missing_counts > 0]
-```
-```{r}
 simple_impute <- function(df) {
   gender_table <- table(df$Big.Gender)
   most_common_gender <- names(gender_table)[which.max(gender_table)]
@@ -3099,13 +3155,13 @@ print(ph_test_strat)
 # library(flexsurv)
 # library(caret)
 # 
-# # Set seed for reproducibility
-# set.seed(123)
-# 
-# # Create training/validation split (80/20)
-# train_indices <- createDataPartition(consolidated_df$Match.Length, p = 0.8, list = FALSE)
-# train_data <- consolidated_df[train_indices, ]
-# validation_data <- consolidated_df[-train_indices, ]
+# Set seed for reproducibility
+set.seed(123)
+
+# Create training/validation split (80/20)
+train_indices <- createDataPartition(consolidated_df$Match.Length, p = 0.8, list = FALSE)
+train_data <- consolidated_df[train_indices, ]
+validation_data <- consolidated_df[-train_indices, ]
 # 
 # # Print dimensions of the datasets
 # cat("Training set dimensions:", dim(train_data), "\n")
@@ -3510,6 +3566,23 @@ RMSE: 14.3
 
 ## xgboost
 ```{r}
+library(xgboost)
+library(Metrics)
+train_control <- trainControl(
+  method = "cv",
+  number = 5,
+  verboseIter = TRUE
+)
+param_grid_small <- expand.grid(
+  nrounds = c(100, 200),
+  max_depth = c(3, 6),
+  eta = c(0.05, 0.1),
+  gamma = c(0, 0.1),
+  colsample_bytree = c(0.8, 1.0),
+  min_child_weight = c(1, 3),
+  subsample = c(0.8, 0.9)
+)
+
 # Define specific predictor variables to use
 feature_cols <- c(
   "Big.Gender", 
@@ -3577,12 +3650,12 @@ best_model <- xgboost(
 )
 
 # And for predictions
-pred_valid <- predict(best_model, as.matrix(validation_prepped[, feature_cols]))
+pred_valid <- predict(best_model, as.matrix(validation_data[, feature_cols]))
 
 # Calculate metrics
-rmse_value <- rmse(validation_prepped$Match.Length, pred_valid)
-mae_value <- mae(validation_prepped$Match.Length, pred_valid)
-r2_value <- cor(validation_prepped$Match.Length, pred_valid)^2
+rmse_value <- rmse(validation_data$Match.Length, pred_valid)
+mae_value <- mae(validation_data$Match.Length, pred_valid)
+r2_value <- cor(validation_data$Match.Length, pred_valid)^2
 
 print(paste("RMSE:", round(rmse_value, 4)))
 print(paste("MAE:", round(mae_value, 4)))
@@ -3590,9 +3663,9 @@ print(paste("R²:", round(r2_value, 4)))
 
 # Comprehensive prediction analysis
 pred_df <- data.frame(
-  Actual = validation_prepped$Match.Length,
+  Actual = validation_data$Match.Length,
   Predicted = pred_valid,
-  Error = validation_prepped$Match.Length - pred_valid
+  Error = validation_data$Match.Length - pred_valid
 )
 
 # 1. Actual vs Predicted Plot with regression line
@@ -3676,8 +3749,8 @@ p4 <- ggplot(pred_df, aes(x = duration_quantile, y = abs_error)) +
 print(p4)
 
 # 11.analyze performance by category
-if("Program.Type" %in% names(validation_prepped)) {
-  pred_df$Program.Type <- validation_prepped$Program.Type
+if("Program.Type" %in% names(validation_data)) {
+  pred_df$Program.Type <- validation_data$Program.Type
   
   p5 <- ggplot(pred_df, aes(x = Program.Type, y = abs_error)) +
     geom_boxplot(fill = "lightgreen") +
@@ -3691,7 +3764,7 @@ if("Program.Type" %in% names(validation_prepped)) {
   print(p5)
 }
 ```
-rmse: 11.87
+rmse: 11.464
 
 ## Models without ongoing matches and before 2024
 ```{r}
@@ -3894,12 +3967,12 @@ best_model <- xgboost(
 )
 
 # And for predictions
-pred_valid <- predict(best_model, as.matrix(validation_prepped[, feature_cols]))
+pred_valid <- predict(best_model, as.matrix(validation_data[, feature_cols]))
 
 # Calculate metrics
-rmse_value <- rmse(validation_prepped$Match.Length, pred_valid)
-mae_value <- mae(validation_prepped$Match.Length, pred_valid)
-r2_value <- cor(validation_prepped$Match.Length, pred_valid)^2
+rmse_value <- rmse(validation_data$Match.Length, pred_valid)
+mae_value <- mae(validation_data$Match.Length, pred_valid)
+r2_value <- cor(validation_data$Match.Length, pred_valid)^2
 
 print(paste("RMSE:", round(rmse_value, 4)))
 print(paste("MAE:", round(mae_value, 4)))
@@ -3907,9 +3980,9 @@ print(paste("R²:", round(r2_value, 4)))
 
 # Comprehensive prediction analysis
 pred_df <- data.frame(
-  Actual = validation_prepped$Match.Length,
+  Actual = validation_data$Match.Length,
   Predicted = pred_valid,
-  Error = validation_prepped$Match.Length - pred_valid
+  Error = validation_data$Match.Length - pred_valid
 )
 
 # 1. Actual vs Predicted Plot with regression line
@@ -3993,8 +4066,8 @@ p4 <- ggplot(pred_df, aes(x = duration_quantile, y = abs_error)) +
 print(p4)
 
 # 11.analyze performance by category
-if("Program.Type" %in% names(validation_prepped)) {
-  pred_df$Program.Type <- validation_prepped$Program.Type
+if("Program.Type" %in% names(validation_data)) {
+  pred_df$Program.Type <- validation_data$Program.Type
   
   p5 <- ggplot(pred_df, aes(x = Program.Type, y = abs_error)) +
     geom_boxplot(fill = "lightgreen") +
@@ -4477,4 +4550,170 @@ if("Program.Type" %in% names(validation_data)) {
 }
 ```
 11.20 -> 10.87
+
+## Joyce Random Forest:
+```{r}
+library(tidymodels)
+library(ranger)
+library(vip)
+library(tune)
+library(workflows)
+library(yardstick)
+library(recipes)
+
+set.seed(123)
+
+# check for missing values and Inf/NaN in latest_sentiment_net
+sentiment_summary <- train_data %>%
+  summarize(
+    missing = sum(is.na(latest_sentiment_net)),
+    infinite = sum(is.infinite(latest_sentiment_net)),
+    nan = sum(is.nan(latest_sentiment_net)),
+    min = min(latest_sentiment_net, na.rm = TRUE),
+    max = max(latest_sentiment_net, na.rm = TRUE)
+  )
+
+# Recipe for preprocessing with fixes
+df_rf_recipe <- recipe(log_Match.Length ~ Big.Gender + Ethnicity_Match + Big.Level.of.Education + 
+                      age_gap_abs + Program.Type + SP500_Level + 
+                      avg_change_density + has_interests + personality_compatibility + 
+                      has_goals + Occupation_Category + latest_sentiment_net + 
+                      avg_days_between_logs + sd_days_between_logs + 
+                      avg_change_words, data = train_data) %>%
+  step_mutate(latest_sentiment_net = ifelse(is.infinite(latest_sentiment_net) | is.nan(latest_sentiment_net), 
+                                           NA, latest_sentiment_net)) %>%
+  # Impute missing numerical values
+  step_impute_median(all_numeric_predictors()) %>%
+  # Handle missing values in factor predictors
+  step_novel(all_nominal_predictors()) %>%
+  step_unknown(all_nominal_predictors()) %>%
+  # Apply log transformations to skewed variables (with offset to handle zeros/negatives)
+  step_log(age_gap_abs, avg_change_density, 
+           avg_days_between_logs, sd_days_between_logs, offset = 1) %>%
+  # Special handling for latest_sentiment_net (log with offset)
+  step_mutate(latest_sentiment_net_adj = latest_sentiment_net + 
+                abs(min(latest_sentiment_net, na.rm = TRUE)) + 1) %>%
+  step_log(latest_sentiment_net_adj) %>%
+  step_rm(latest_sentiment_net) %>%
+  step_zv(all_predictors()) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_zv(all_predictors()) %>%
+  step_normalize(all_numeric_predictors(), na_rm = TRUE)
+
+# Prep the recipe to check if preprocessing works properly
+prepped_recipe <- prep(df_rf_recipe, training = train_data, verbose = TRUE)
+train_data_processed <- bake(prepped_recipe, new_data = train_data)
+
+# Define the model specification with tunable parameters
+df_rf_spec <- rand_forest(
+  trees = tune(),      # Number of trees to try
+  mtry = tune(),       # Number of predictors to sample
+  min_n = tune()       # Minimum node size
+) %>%
+  set_mode("regression") %>%
+  set_engine("ranger", importance = "impurity", respect.unordered.factors = "order")
+
+# Create a workflow combining recipe and model
+df_rf_workflow <- workflow() %>%
+  add_recipe(df_rf_recipe) %>%
+  add_model(df_rf_spec)
+
+# Use a smaller grid for faster computation 
+rf_grid <- grid_regular(
+  trees(range = c(100, 300), trans = NULL),
+  mtry(range = c(3, 6), trans = NULL),
+  min_n(range = c(2, 5), trans = NULL),
+  levels = 2
+)
+
+# Define cross-validation folds (stratified by target variable)
+folds <- vfold_cv(train_data, v = 5, strata = log_Match.Length)
+
+# Define metrics for evaluation
+rf_metrics <- metric_set(yardstick::rmse, yardstick::mae, yardstick::rsq)
+
+# control parameters with options to handle errors
+ctrl <- control_grid(
+  save_pred = TRUE,
+  verbose = TRUE,
+  allow_par = FALSE,  # Disable parallel processing for easier debugging
+  extract = function(x) extract_fit_parsnip(x)
+)
+
+# Tune the hyperparameters using grid search
+rf_tune_results <- tune_grid(
+  df_rf_workflow,
+  resamples = folds,
+  grid = rf_grid,
+  metrics = rf_metrics,
+  control = ctrl
+)
+
+# Show the best parameter combinations
+best_rmse <- show_best(rf_tune_results, metric = "rmse", n = 5)
+print(best_rmse)
+
+# Select the best hyperparameter combination
+best_params <- select_best(rf_tune_results, metric = "rmse")
+print(best_params)
+
+# Finalize the workflow with the best parameters
+final_rf_workflow <- df_rf_workflow %>%
+  finalize_workflow(best_params)
+
+# Fit the model on the entire training set
+final_rf_fit <- fit(final_rf_workflow, data = train_data)
+
+# Plot variable importance
+vip_plot <- vip(final_rf_fit, 
+                num_features = 10,      
+                aesthetics = list(color = "steelblue")) + 
+  theme_minimal() +         
+  labs(
+    title = "Variable Importance Plot",
+    subtitle = "Top 10 Features from Random Forest",
+    x = "Importance",
+    y = "Feature"
+  ) + 
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10)
+  )
+
+print(vip_plot)
+
+# Fit the final model
+final_fit <- fit(final_rf_workflow, train_data)
+
+# Make predictions on validation data
+rf_predictions <- augment(final_fit, new_data = validation_data)
+
+# Calculate metrics on validation set
+val_metrics <- rf_predictions %>%
+  yardstick::metrics(truth = log_Match.Length, estimate = .pred)
+print(val_metrics)
+
+# Calculate RMSE specifically
+val_rmse <- yardstick::rmse(rf_predictions, truth = log_Match.Length, estimate = .pred)
+print(paste("Validation RMSE (log scale):", val_rmse$.estimate))
+
+# Convert predictions back to original scale for interpretability
+rf_predictions <- rf_predictions %>%
+  mutate(
+    actual_Match.Length = exp(log_Match.Length) - 1,  # assuming log1p was used originally
+    pred_Match.Length = exp(.pred) - 1
+  )
+
+# Calculate metrics on original scale
+actual_rmse <- sqrt(mean((rf_predictions$actual_Match.Length - rf_predictions$pred_Match.Length)^2))
+actual_mae <- mean(abs(rf_predictions$actual_Match.Length - rf_predictions$pred_Match.Length))
+actual_rsq <- cor(rf_predictions$actual_Match.Length, rf_predictions$pred_Match.Length)^2
+
+print(paste("Original scale RMSE:", round(actual_rmse, 4)))
+print(paste("Original scale MAE:", round(actual_mae, 4)))
+print(paste("Original scale R²:", round(actual_rsq, 4)))
+```
+RF RMSE - 11.02
 
