@@ -2269,7 +2269,7 @@ print(market_table)
 ```{r}
 df_with_sp500_deduped <- df_with_sp500 %>%
   group_by(Match.ID.18Char, Completion.Date) %>%
-  slice(1) %>%
+  filter(row_number() == 1) %>% 
   ungroup()
 
 merged_df <- merge(
@@ -2278,6 +2278,7 @@ merged_df <- merge(
   by = c("Match.ID.18Char", "Completion.Date"),
   all.x = TRUE
 )
+
 merged_df
 ```
 
@@ -2289,7 +2290,7 @@ consolidated_df <- df2 %>%
   arrange(Match.ID.18Char, Completion.Date) %>%
   group_by(Match.ID.18Char, Completion.Date) %>%
   # deduplicate any exact duplicates for the same Match.ID.18Char and Completion.Date
-  slice(1) %>%
+  filter(row_number() == 1) %>%
   ungroup(Completion.Date) %>%
   mutate(
     all_notes = paste(Match.Support.Contact.Notes[!is.na(Match.Support.Contact.Notes) & 
@@ -2300,7 +2301,7 @@ consolidated_df <- df2 %>%
 
 consolidated_df <- consolidated_df %>%
   group_by(Match.ID.18Char) %>%
-  slice(1) %>%
+  filter(row_number() == 1) %>%
   mutate(
     Match.Support.Contact.Notes = all_notes
   ) %>%
@@ -2874,6 +2875,94 @@ summary(consolidated_df[, c("Big_Latitude", "Big_Longitude", "Little_Latitude", 
 
 ```
 
+Distance to Minneapolis:
+```{r}
+# Minneapolis coordinates
+mpls_lat <- 44.9778  # Minneapolis latitude in degrees North
+mpls_lon <- -93.2650  # Minneapolis longitude in degrees West (note the negative sign for western hemisphere)
+
+# Function to calculate distance to Minneapolis
+calculate_distance_to_mpls <- function(lat, lon) {
+  # Early return if any input is NA or not numeric
+  if (is.na(lat) || is.na(lon)) {
+    return(NA_real_)
+  }
+  
+  # Ensure inputs are numeric
+  lat <- as.numeric(lat)
+  lon <- as.numeric(lon)
+  
+  # Check again after conversion
+  if (is.na(lat) || is.na(lon)) {
+    return(NA_real_)
+  }
+  
+  # Convert degrees to radians
+  lat <- lat * pi / 180
+  lon <- lon * pi / 180
+  mpls_lat_rad <- mpls_lat * pi / 180
+  mpls_lon_rad <- mpls_lon * pi / 180
+  
+  # Earth radius in miles
+  R <- 3958.8
+  
+  # Haversine formula
+  dlon <- mpls_lon_rad - lon
+  dlat <- mpls_lat_rad - lat
+  a <- sin(dlat/2)^2 + cos(lat) * cos(mpls_lat_rad) * sin(dlon/2)^2
+  c <- 2 * atan2(sqrt(a), sqrt(1-a))
+  distance <- R * c
+  
+  return(distance)
+}
+
+# Add distance to Minneapolis for both Big and Little
+consolidated_df$Big_Distance_To_Mpls <- mapply(
+  calculate_distance_to_mpls,
+  consolidated_df$Big_Latitude, consolidated_df$Big_Longitude
+)
+
+consolidated_df$Little_Distance_To_Mpls <- mapply(
+  calculate_distance_to_mpls,
+  consolidated_df$Little_Latitude, consolidated_df$Little_Longitude
+)
+
+# Calculate average distance to Minneapolis (when both Big and Little have coordinates)
+consolidated_df$Avg_Distance_To_Mpls <- rowMeans(
+  cbind(consolidated_df$Big_Distance_To_Mpls, consolidated_df$Little_Distance_To_Mpls),
+  na.rm = TRUE
+)
+
+# Handle rows where both values were NA (rowMeans with na.rm=TRUE returns NaN in this case)
+consolidated_df$Avg_Distance_To_Mpls[is.nan(consolidated_df$Avg_Distance_To_Mpls)] <- NA_real_
+
+# Summarize the new distance columns
+summary_stats <- summary(consolidated_df[, c("Big_Distance_To_Mpls", "Little_Distance_To_Mpls", "Avg_Distance_To_Mpls")])
+print(summary_stats)
+
+# Create distance categories
+consolidated_df$Mpls_Distance_Category <- cut(
+  consolidated_df$Avg_Distance_To_Mpls,
+  breaks = c(0, 5, 10, 20, Inf),
+  labels = c("Very Close (<5mi)", "Close (5-10mi)", "Moderate (10-20mi)", "Far (>20mi)"),
+  include.lowest = TRUE
+)
+
+# Count matches by distance category
+distance_miles_median <- median(consolidated_df$Distance_Miles, na.rm = TRUE)
+consolidated_df$Distance_Miles_Imp <- consolidated_df$Distance_Miles
+consolidated_df$Distance_Miles_Imp[is.na(consolidated_df$Distance_Miles_Imp)] <- distance_miles_median
+consolidated_df$Distance_Miles <- consolidated_df$Distance_Miles_Imp
+consolidated_df$Distance_Miles_Imp <- NULL
+
+Avg_Distance_To_Mpls_Median <- distance_miles_median <- median(consolidated_df$Distance_Miles, na.rm = TRUE)
+consolidated_df$Distance_Mlps_Imp <- consolidated_df$Avg_Distance_To_Mpls
+consolidated_df$Distance_Mlps_Imp[is.na(consolidated_df$Distance_Mlps_Imp)] <- Avg_Distance_To_Mpls_Median
+consolidated_df$Avg_Distance_To_Mpls <- consolidated_df$Distance_Mlps_Imp
+consolidated_df$Distance_Mlps_Imp <- NULL
+```
+
+
 
 Seasonal analysis:
 ```{r}
@@ -3225,6 +3314,95 @@ validation_data <- consolidated_df[-train_indices, ]
 # abline(h = 0, col = "red", lwd = 2)  # Add horizontal line at 0
 ```
 Doesnt seem to be linear
+
+### Plot of sd_days_between_logs:
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# First, a basic histogram
+p1 <- ggplot(consolidated_df, aes(x = sd_days_between_logs)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white", alpha = 0.8) +
+  labs(
+    title = "Distribution of Standard Deviation of Days Between Logs",
+    subtitle = "Histogram of variability in contact frequency",
+    x = "Standard Deviation (days)",
+    y = "Count"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(color = "darkgray")
+  )
+
+# Add a density plot overlay for better visualization of the shape
+p2 <- ggplot(consolidated_df, aes(x = sd_days_between_logs)) +
+  geom_histogram(aes(y = ..density..), bins = 30, fill = "steelblue", color = "white", alpha = 0.7) +
+  geom_density(color = "darkred", size = 1) +
+  labs(
+    title = "Distribution of Standard Deviation of Days Between Logs",
+    subtitle = "Histogram with density overlay",
+    x = "Standard Deviation (days)",
+    y = "Density"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(color = "darkgray")
+  )
+
+# Alternative: log-transformed version to better see the distribution
+p3 <- ggplot(consolidated_df, aes(x = sd_days_between_logs)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white", alpha = 0.8) +
+  scale_x_log10() +
+  labs(
+    title = "Distribution of SD Days Between Logs (Log Scale)",
+    subtitle = "Log transformation helps visualize skewed distributions",
+    x = "Standard Deviation (days, log scale)",
+    y = "Count"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(color = "darkgray")
+  )
+
+# Boxplot for another perspective
+p4 <- ggplot(consolidated_df, aes(y = sd_days_between_logs)) +
+  geom_boxplot(fill = "steelblue", alpha = 0.7) +
+  labs(
+    title = "Boxplot of Standard Deviation of Days Between Logs",
+    x = "",
+    y = "Standard Deviation (days)"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
+
+# Calculate summary statistics
+summary_stats <- consolidated_df %>%
+  summarize(
+    mean = mean(sd_days_between_logs, na.rm = TRUE),
+    median = median(sd_days_between_logs, na.rm = TRUE),
+    min = min(sd_days_between_logs, na.rm = TRUE),
+    max = max(sd_days_between_logs, na.rm = TRUE),
+    sd = sd(sd_days_between_logs, na.rm = TRUE),
+    q25 = quantile(sd_days_between_logs, 0.25, na.rm = TRUE),
+    q75 = quantile(sd_days_between_logs, 0.75, na.rm = TRUE),
+    missing = sum(is.na(sd_days_between_logs)),
+    n = n()
+  )
+
+# Print summary statistics
+print(summary_stats)
+
+# Return just the standard histogram (p1)
+p1
+```
+
 
 ## Gradient Boosting Machine:
 ```{r}
@@ -3600,7 +3778,8 @@ feature_cols <- c(
   "avg_days_between_logs", 
   "sd_days_between_logs",
   "avg_change_word",
-  "Distance_Miles"
+  "Distance_Miles",
+   "Distance_to_Minneapolis"
 )
 
 # Verify all features exist in the dataset
@@ -4107,7 +4286,8 @@ quantitative_vars <- c(
   "avg_days_between_logs", 
   "avg_change_words", 
   "Distance_Miles",
-  "sd_days_between_logs"
+  "sd_days_between_logs",
+  "Avg_Distance_To_Mpls"
 )
 
 for (var in quantitative_vars) {
@@ -4283,7 +4463,8 @@ quantitative_vars <- c(
   "avg_days_between_logs", 
   "avg_change_words", 
   "Distance_Miles",
-  "sd_days_between_logs"
+  "sd_days_between_logs",
+  "Avg_Distance_To_Mpls"
 )
 
 for (var in quantitative_vars) {
@@ -4579,7 +4760,7 @@ df_rf_recipe <- recipe(log_Match.Length ~ Big.Gender + Ethnicity_Match + Big.Lev
                       avg_change_density + has_interests + personality_compatibility + 
                       has_goals + Occupation_Category + latest_sentiment_net + 
                       avg_days_between_logs + sd_days_between_logs + 
-                      avg_change_words, data = train_data) %>%
+                      avg_change_words + Avg_Distance_To_Mpls, data = train_data) %>%
   step_mutate(latest_sentiment_net = ifelse(is.infinite(latest_sentiment_net) | is.nan(latest_sentiment_net), 
                                            NA, latest_sentiment_net)) %>%
   # Impute missing numerical values
@@ -4589,7 +4770,7 @@ df_rf_recipe <- recipe(log_Match.Length ~ Big.Gender + Ethnicity_Match + Big.Lev
   step_unknown(all_nominal_predictors()) %>%
   # Apply log transformations to skewed variables (with offset to handle zeros/negatives)
   step_log(age_gap_abs, avg_change_density, 
-           avg_days_between_logs, sd_days_between_logs, offset = 1) %>%
+           avg_days_between_logs, sd_days_between_logs, Avg_Distance_To_Mpls, offset = 1) %>%
   # Special handling for latest_sentiment_net (log with offset)
   step_mutate(latest_sentiment_net_adj = latest_sentiment_net + 
                 abs(min(latest_sentiment_net, na.rm = TRUE)) + 1) %>%
@@ -4715,7 +4896,7 @@ print(paste("Original scale RMSE:", round(actual_rmse, 4)))
 print(paste("Original scale MAE:", round(actual_mae, 4)))
 print(paste("Original scale R²:", round(actual_rsq, 4)))
 ```
-RF RMSE - 11.02
+RF RMSE - 11.2
 
 ```{r}
 library(ggplot2)
@@ -4820,4 +5001,467 @@ p7 <- ggplot(pred_df, aes(x = Error)) +
 print(p7)
 
 ```
+
+
+## stratified models
+### xgboost
+```{r}
+library(xgboost)
+library(caret)
+library(dplyr)
+library(ggplot2)
+
+# Set seed for reproducibility
+set.seed(123)
+
+# Create a copy of the dataset for transformation
+log_df <- consolidated_df
+
+# Log transform Match.Length (the target variable)
+log_df$log_Match.Length <- log1p(log_df$Match.Length)  # log1p() to handle zero values
+
+# Identify and log transform all quantitative variables
+quantitative_vars <- c(
+  "age_gap_abs", 
+  "avg_change_density", 
+  "latest_sentiment_net", 
+  "avg_days_between_logs", 
+  "avg_change_words", 
+  "Distance_Miles",
+  "sd_days_between_logs",
+  "Avg_Distance_To_Mpls"
+)
+
+for (var in quantitative_vars) {
+  if (var %in% names(log_df)) {
+    # Add a small constant to handle negative values if needed
+    min_val <- min(log_df[[var]], na.rm = TRUE)
+    if (min_val < 0) {
+      shift_val <- abs(min_val) + 1
+      log_df[[paste0("log_", var)]] <- log1p(log_df[[var]] + shift_val)
+    } else {
+      log_df[[paste0("log_", var)]] <- log1p(log_df[[var]])
+    }
+  }
+}
+
+set.seed(123) 
+train_indices <- createDataPartition(log_df$log_Match.Length, p = 0.8, 
+                                    list = FALSE, 
+                                    times = 1)
+train_data <- log_df[train_indices, ]
+validation_data <- log_df[-train_indices, ]
+
+# Define feature columns to use (combine categorical and log-transformed variables)
+log_vars <- paste0("log_", quantitative_vars)
+log_vars <- log_vars[log_vars %in% names(log_df)]  # Filter for variables that actually exist
+
+categorical_vars <- c("Big.Gender", "Ethnicity_Match", "Big.Level.of.Education", 
+                     "Program.Type", "has_interests", "personality_compatibility", 
+                     "has_goals", "Occupation_Category")
+
+feature_cols <- c(categorical_vars, log_vars)
+
+# Verify all features exist in the dataset
+missing_cols <- setdiff(feature_cols, names(train_data))
+if(length(missing_cols) > 0) {
+  print("Warning: These specified features don't exist in the dataset:")
+  print(missing_cols)
+  # Remove missing columns from feature_cols
+  feature_cols <- intersect(feature_cols, names(train_data))
+}
+
+# Convert categorical variables to numeric for XGBoost
+# XGBoost requires numeric inputs, so we'll convert all categorical variables
+train_data_prepped <- train_data
+validation_data_prepped <- validation_data
+
+for(col in categorical_vars) {
+  if(col %in% names(train_data) && !is.numeric(train_data[[col]])) {
+    # Create one-hot encoding
+    dummies <- model.matrix(~ . - 1, data = data.frame(x = train_data[[col]]))
+    colnames(dummies) <- paste0(col, "_", colnames(dummies))
+    
+    # Add one-hot encoded columns to datasets
+    train_data_prepped <- cbind(train_data_prepped, dummies)
+    
+    # Create the same dummy columns for validation set
+    val_dummies <- model.matrix(~ . - 1, data = data.frame(x = validation_data[[col]]))
+    colnames(val_dummies) <- paste0(col, "_", colnames(val_dummies))
+    validation_data_prepped <- cbind(validation_data_prepped, val_dummies)
+    
+    # Remove original categorical column from feature_cols
+    feature_cols <- setdiff(feature_cols, col)
+    
+    # Add new dummy column names to feature_cols
+    feature_cols <- c(feature_cols, colnames(dummies))
+  }
+}
+
+# Verify all remaining features are numeric
+non_numeric_cols <- feature_cols[sapply(train_data_prepped[, feature_cols], function(x) !is.numeric(x))]
+if(length(non_numeric_cols) > 0) {
+  print("Warning: These features are still not numeric after preprocessing:")
+  print(non_numeric_cols)
+  # Remove remaining non-numeric columns
+  feature_cols <- setdiff(feature_cols, non_numeric_cols)
+}
+
+print("Final feature columns:")
+print(feature_cols)
+
+# Define XGBoost parameters for grid search
+param_grid <- expand.grid(
+  nrounds = c(100, 200, 300),
+  max_depth = c(3, 5, 7),
+  eta = c(0.01, 0.05, 0.1),
+  gamma = c(0, 0.1, 0.3),
+  colsample_bytree = c(0.7, 0.8, 1.0),
+  min_child_weight = c(1, 3, 5),
+  subsample = c(0.7, 0.8, 0.9)
+)
+
+# Use a smaller grid for faster computation
+param_grid_small <- expand.grid(
+  nrounds = c(100, 200),
+  max_depth = c(3, 6),
+  eta = c(0.05, 0.1),
+  gamma = c(0, 0.1),
+  colsample_bytree = c(0.8, 1.0),
+  min_child_weight = c(1, 3),
+  subsample = c(0.8, 0.9)
+)
+
+# Configure cross-validation
+train_control <- trainControl(
+  method = "cv",
+  number = 5,
+  verboseIter = TRUE
+)
+
+# Train XGBoost model using caret's train function with log-transformed target
+set.seed(123)
+xgb_grid <- train(
+  x = train_data_prepped[, feature_cols],
+  y = train_data_prepped$log_Match.Length,  # Using log-transformed target
+  method = "xgbTree",
+  trControl = train_control,
+  tuneGrid = param_grid_small,
+  metric = "RMSE"
+)
+
+# Display best tuning parameters
+print(xgb_grid)
+print(xgb_grid$bestTune)
+
+# Train final model with best parameters
+best_model <- xgboost(
+  data = as.matrix(train_data_prepped[, feature_cols]),
+  label = train_data_prepped$log_Match.Length,  # Using log-transformed target
+  nrounds = xgb_grid$bestTune$nrounds,
+  max_depth = xgb_grid$bestTune$max_depth,
+  eta = xgb_grid$bestTune$eta,
+  gamma = xgb_grid$bestTune$gamma,
+  colsample_bytree = xgb_grid$bestTune$colsample_bytree,
+  min_child_weight = xgb_grid$bestTune$min_child_weight,
+  subsample = xgb_grid$bestTune$subsample,
+  objective = "reg:squarederror",
+  verbose = 0
+)
+
+# Make predictions (in log scale)
+log_predictions <- predict(best_model, as.matrix(validation_data_prepped[, feature_cols]))
+
+# Transform predictions back to original scale
+predictions <- expm1(log_predictions)  # expm1() is inverse of log1p()
+
+# Calculate metrics on original scale
+rmse_value <- sqrt(mean((predictions - validation_data$Match.Length)^2, na.rm = TRUE))
+mae_value <- mean(abs(predictions - validation_data$Match.Length), na.rm = TRUE)
+r2_value <- cor(validation_data$Match.Length, predictions)^2
+
+print(paste("RMSE:", round(rmse_value, 4)))
+print(paste("MAE:", round(mae_value, 4)))
+print(paste("R²:", round(r2_value, 4)))
+
+# Compare with baseline and original model
+baseline_pred <- rep(mean(train_data$Match.Length), nrow(validation_data))
+baseline_rmse <- sqrt(mean((baseline_pred - validation_data$Match.Length)^2, na.rm = TRUE))
+
+cat("\nModel Comparison:\n")
+cat("Log-transformed XGBoost RMSE:", rmse_value, "\n")
+cat("Original XGBoost RMSE: 11.87\n")  # From the original model
+cat("Baseline RMSE:", baseline_rmse, "\n")
+cat("Improvement over original model: ", round((11.87 - rmse_value) / 11.87 * 100, 2), "%\n")
+cat("Improvement over baseline: ", round((baseline_rmse - rmse_value) / baseline_rmse * 100, 2), "%\n")
+
+# Create a dataframe for prediction analysis
+pred_df <- data.frame(
+  Actual = validation_data$Match.Length,
+  Predicted = predictions,
+  Error = validation_data$Match.Length - predictions
+)
+
+# 1. Actual vs Predicted Plot with regression line
+p1 <- ggplot(pred_df, aes(x = Actual, y = Predicted)) +
+  geom_point(alpha = 0.5, color = "blue") +
+  geom_smooth(method = "lm", color = "red", se = TRUE) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  labs(
+    title = "Actual vs Predicted Match Length (Log-transformed XGBoost)",
+    subtitle = paste("RMSE =", round(rmse_value, 2), ", R² =", round(r2_value, 2)),
+    x = "Actual Match Length (months)",
+    y = "Predicted Match Length (months)"
+  ) +
+  theme_minimal()
+print(p1)
+
+# 2. Error distribution histogram
+p2 <- ggplot(pred_df, aes(x = Error)) +
+  geom_histogram(bins = 30, fill = "blue", alpha = 0.7) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  labs(
+    title = "Error Distribution (Log-transformed XGBoost)",
+    x = "Prediction Error (Actual - Predicted)",
+    y = "Count"
+  ) +
+  theme_minimal()
+print(p2)
+
+# 3. Feature importance
+importance_matrix <- xgb.importance(
+  feature_names = feature_cols,
+  model = best_model
+)
+xgb.plot.importance(importance_matrix, top_n = 15, main = "Feature Importance (Log-transformed XGBoost)")
+
+# 4. Residuals vs Predicted values (check for patterns)
+p3 <- ggplot(pred_df, aes(x = Predicted, y = Error)) +
+  geom_point(alpha = 0.5, color = "blue") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  geom_smooth(method = "loess", se = TRUE, color = "purple") +
+  labs(
+    title = "Residuals vs Predicted Values (Log-transformed XGBoost)",
+    x = "Predicted Match Length (months)",
+    y = "Residuals"
+  ) +
+  theme_minimal()
+print(p3)
+
+# 5. Prediction accuracy by error quantile
+pred_df$abs_error <- abs(pred_df$Error)
+pred_df$error_quantile <- cut(pred_df$abs_error, 
+                              breaks = quantile(pred_df$abs_error, probs = seq(0, 1, 0.25)),
+                              labels = c("Q1 (Best)", "Q2", "Q3", "Q4 (Worst)"),
+                              include.lowest = TRUE)
+
+# 6. Detailed error analysis by error quantile
+error_summary <- aggregate(pred_df[, c("Actual", "Predicted", "Error", "abs_error")],
+                          by = list(Quantile = pred_df$error_quantile),
+                          FUN = function(x) c(Mean = mean(x), Median = median(x), SD = sd(x)))
+print(error_summary)
+
+# 7. Look for patterns in worst predictions
+worst_predictions <- pred_df[order(-pred_df$abs_error), ][1:20, ]
+print("Worst 20 predictions:")
+print(worst_predictions)
+
+# 8. Error by duration quantile (are we better at predicting short or long matches?)
+pred_df$duration_quantile <- cut(pred_df$Actual, 
+                                breaks = quantile(pred_df$Actual, probs = seq(0, 1, 0.25)),
+                                labels = c("Q1 (Shortest)", "Q2", "Q3", "Q4 (Longest)"),
+                                include.lowest = TRUE)
+
+p4 <- ggplot(pred_df, aes(x = duration_quantile, y = abs_error)) +
+  geom_boxplot(fill = "lightblue") +
+  labs(
+    title = "Prediction Error by Match Duration (Log-transformed XGBoost)",
+    x = "Match Duration Quantile",
+    y = "Absolute Error (months)"
+  ) +
+  theme_minimal()
+print(p4)
+
+if("Program.Type" %in% names(validation_data)) {
+  pred_df$Program.Type <- validation_data$Program.Type
+  
+  p5 <- ggplot(pred_df, aes(x = Program.Type, y = abs_error)) +
+    geom_boxplot(fill = "lightgreen") +
+    labs(
+      title = "Prediction Error by Program Type (Log-transformed XGBoost)",
+      x = "Program Type",
+      y = "Absolute Error (months)"
+    ) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  print(p5)
+}
+```
+
+
+### RF model
+```{r}
+library(tidymodels)
+library(ranger)
+library(vip)
+library(tune)
+library(workflows)
+library(yardstick)
+library(recipes)
+
+set.seed(123)
+
+# check for missing values and Inf/NaN in latest_sentiment_net
+sentiment_summary <- train_data %>%
+  summarize(
+    missing = sum(is.na(latest_sentiment_net)),
+    infinite = sum(is.infinite(latest_sentiment_net)),
+    nan = sum(is.nan(latest_sentiment_net)),
+    min = min(latest_sentiment_net, na.rm = TRUE),
+    max = max(latest_sentiment_net, na.rm = TRUE)
+  )
+
+# Recipe for preprocessing with fixes
+df_rf_recipe <- recipe(log_Match.Length ~ Big.Gender + Ethnicity_Match + Big.Level.of.Education + 
+                      age_gap_abs + Program.Type + SP500_Level + 
+                      avg_change_density + has_interests + personality_compatibility + 
+                      has_goals + Occupation_Category + latest_sentiment_net + 
+                      avg_days_between_logs + sd_days_between_logs + 
+                      avg_change_words + Avg_Distance_To_Mpls, data = train_data) %>%
+  step_mutate(latest_sentiment_net = ifelse(is.infinite(latest_sentiment_net) | is.nan(latest_sentiment_net), 
+                                           NA, latest_sentiment_net)) %>%
+  # Impute missing numerical values
+  step_impute_median(all_numeric_predictors()) %>%
+  # Handle missing values in factor predictors
+  step_novel(all_nominal_predictors()) %>%
+  step_unknown(all_nominal_predictors()) %>%
+  # Apply log transformations to skewed variables (with offset to handle zeros/negatives)
+  step_log(age_gap_abs, avg_change_density, 
+           avg_days_between_logs, sd_days_between_logs, Avg_Distance_To_Mpls, offset = 1) %>%
+  # Special handling for latest_sentiment_net (log with offset)
+  step_mutate(latest_sentiment_net_adj = latest_sentiment_net + 
+                abs(min(latest_sentiment_net, na.rm = TRUE)) + 1) %>%
+  step_log(latest_sentiment_net_adj) %>%
+  step_rm(latest_sentiment_net) %>%
+  step_zv(all_predictors()) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_zv(all_predictors()) %>%
+  step_normalize(all_numeric_predictors(), na_rm = TRUE)
+
+# Prep the recipe to check if preprocessing works properly
+prepped_recipe <- prep(df_rf_recipe, training = train_data, verbose = TRUE)
+train_data_processed <- bake(prepped_recipe, new_data = train_data)
+
+# Define the model specification with tunable parameters
+df_rf_spec <- rand_forest(
+  trees = tune(),      # Number of trees to try
+  mtry = tune(),       # Number of predictors to sample
+  min_n = tune()       # Minimum node size
+) %>%
+  set_mode("regression") %>%
+  set_engine("ranger", importance = "impurity", respect.unordered.factors = "order")
+
+# Create a workflow combining recipe and model
+df_rf_workflow <- workflow() %>%
+  add_recipe(df_rf_recipe) %>%
+  add_model(df_rf_spec)
+
+# Use a smaller grid for faster computation 
+rf_grid <- grid_regular(
+  trees(range = c(100, 300), trans = NULL),
+  mtry(range = c(3, 6), trans = NULL),
+  min_n(range = c(2, 5), trans = NULL),
+  levels = 2
+)
+
+# Define cross-validation folds (stratified by target variable)
+folds <- vfold_cv(train_data, v = 5, strata = log_Match.Length)
+
+# Define metrics for evaluation
+rf_metrics <- metric_set(yardstick::rmse, yardstick::mae, yardstick::rsq)
+
+# control parameters with options to handle errors
+ctrl <- control_grid(
+  save_pred = TRUE,
+  verbose = TRUE,
+  allow_par = FALSE,  # Disable parallel processing for easier debugging
+  extract = function(x) extract_fit_parsnip(x)
+)
+
+# Tune the hyperparameters using grid search
+rf_tune_results <- tune_grid(
+  df_rf_workflow,
+  resamples = folds,
+  grid = rf_grid,
+  metrics = rf_metrics,
+  control = ctrl
+)
+
+# Show the best parameter combinations
+best_rmse <- show_best(rf_tune_results, metric = "rmse", n = 5)
+print(best_rmse)
+
+# Select the best hyperparameter combination
+best_params <- select_best(rf_tune_results, metric = "rmse")
+print(best_params)
+
+# Finalize the workflow with the best parameters
+final_rf_workflow <- df_rf_workflow %>%
+  finalize_workflow(best_params)
+
+# Fit the model on the entire training set
+final_rf_fit <- fit(final_rf_workflow, data = train_data)
+
+# Plot variable importance
+vip_plot <- vip(final_rf_fit, 
+                num_features = 10,      
+                aesthetics = list(color = "steelblue")) + 
+  theme_minimal() +         
+  labs(
+    title = "Variable Importance Plot",
+    subtitle = "Top 10 Features from Random Forest",
+    x = "Importance",
+    y = "Feature"
+  ) + 
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10)
+  )
+
+print(vip_plot)
+
+# Fit the final model
+final_fit <- fit(final_rf_workflow, train_data)
+
+# Make predictions on validation data
+rf_predictions <- augment(final_fit, new_data = validation_data)
+
+# Calculate metrics on validation set
+val_metrics <- rf_predictions %>%
+  yardstick::metrics(truth = log_Match.Length, estimate = .pred)
+print(val_metrics)
+
+# Calculate RMSE specifically
+val_rmse <- yardstick::rmse(rf_predictions, truth = log_Match.Length, estimate = .pred)
+print(paste("Validation RMSE (log scale):", val_rmse$.estimate))
+
+# Convert predictions back to original scale for interpretability
+rf_predictions <- rf_predictions %>%
+  mutate(
+    actual_Match.Length = exp(log_Match.Length) - 1,  # assuming log1p was used originally
+    pred_Match.Length = exp(.pred) - 1
+  )
+
+# Calculate metrics on original scale
+actual_rmse <- sqrt(mean((rf_predictions$actual_Match.Length - rf_predictions$pred_Match.Length)^2))
+actual_mae <- mean(abs(rf_predictions$actual_Match.Length - rf_predictions$pred_Match.Length))
+actual_rsq <- cor(rf_predictions$actual_Match.Length, rf_predictions$pred_Match.Length)^2
+
+print(paste("Original scale RMSE:", round(actual_rmse, 4)))
+print(paste("Original scale MAE:", round(actual_mae, 4)))
+print(paste("Original scale R²:", round(actual_rsq, 4)))
+```
+
 
