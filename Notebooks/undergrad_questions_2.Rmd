@@ -4717,3 +4717,107 @@ print(paste("Original scale R²:", round(actual_rsq, 4)))
 ```
 RF RMSE - 11.02
 
+```{r}
+library(ggplot2)
+library(dplyr)
+
+pred_df <- data.frame(
+  Actual = rf_predictions$actual_Match.Length,
+  Predicted = rf_predictions$pred_Match.Length,
+  Error = rf_predictions$actual_Match.Length - rf_predictions$pred_Match.Length
+)
+
+# Calculate absolute error
+pred_df$abs_error <- abs(pred_df$Error)
+
+# Residuals vs Predicted values (check for patterns)
+p3 <- ggplot(pred_df, aes(x = Predicted, y = Error)) +
+  geom_point(alpha = 0.5, color = "blue") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  geom_smooth(method = "loess", se = TRUE, color = "purple") +
+  labs(
+    title = "Residuals vs Predicted Values (Random Forest)",
+    x = "Predicted Match Length (months)",
+    y = "Residuals"
+  ) +
+  theme_minimal()
+print(p3)
+
+# Prediction accuracy by error quantile
+pred_df$error_quantile <- cut(pred_df$abs_error, 
+                              breaks = quantile(pred_df$abs_error, probs = seq(0, 1, 0.25)),
+                              labels = c("Q1 (Best)", "Q2", "Q3", "Q4 (Worst)"),
+                              include.lowest = TRUE)
+
+# Detailed error analysis by error quantile
+error_summary <- aggregate(pred_df[, c("Actual", "Predicted", "Error", "abs_error")],
+                          by = list(Quantile = pred_df$error_quantile),
+                          FUN = function(x) c(Mean = mean(x), Median = median(x), SD = sd(x)))
+print("Error analysis by quantile:")
+print(error_summary)
+
+# Look for patterns in worst predictions
+worst_predictions <- pred_df[order(-pred_df$abs_error), ][1:20, ]
+print("Worst 20 predictions:")
+print(worst_predictions)
+
+# Error by duration quantile (are we better at predicting short or long matches?)
+pred_df$duration_quantile <- cut(pred_df$Actual, 
+                                breaks = quantile(pred_df$Actual, probs = seq(0, 1, 0.25)),
+                                labels = c("Q1 (Shortest)", "Q2", "Q3", "Q4 (Longest)"),
+                                include.lowest = TRUE)
+
+p4 <- ggplot(pred_df, aes(x = duration_quantile, y = abs_error)) +
+  geom_boxplot(fill = "lightblue") +
+  labs(
+    title = "Prediction Error by Match Duration (Random Forest)",
+    x = "Match Duration Quantile",
+    y = "Absolute Error (months)"
+  ) +
+  theme_minimal()
+print(p4)
+
+# Error by Program Type
+if("Program.Type" %in% names(validation_data)) {
+  # Join Program.Type from validation_data to pred_df
+  pred_df$Program.Type <- validation_data$Program.Type
+  
+  p5 <- ggplot(pred_df, aes(x = Program.Type, y = abs_error)) +
+    geom_boxplot(fill = "lightgreen") +
+    labs(
+      title = "Prediction Error by Program Type (Random Forest)",
+      x = "Program Type",
+      y = "Absolute Error (months)"
+    ) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  print(p5)
+}
+
+# Additional diagnostic: Scatterplot of actual vs predicted with reference line
+p6 <- ggplot(pred_df, aes(x = Actual, y = Predicted)) +
+  geom_point(alpha = 0.5, color = "blue") +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  geom_smooth(method = "loess", se = TRUE, color = "purple") +
+  labs(
+    title = "Actual vs Predicted Match Length (Random Forest)",
+    x = "Actual Match Length (months)",
+    y = "Predicted Match Length (months)"
+  ) +
+  theme_minimal()
+print(p6)
+
+# Error distribution histogram
+p7 <- ggplot(pred_df, aes(x = Error)) +
+  geom_histogram(bins = 30, fill = "steelblue", alpha = 0.7) +
+  geom_vline(xintercept = 0, color = "red", linetype = "dashed") +
+  labs(
+    title = "Error Distribution (Random Forest)",
+    x = "Prediction Error (months)",
+    y = "Count"
+  ) +
+  theme_minimal()
+print(p7)
+
+```
+
