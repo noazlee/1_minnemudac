@@ -20,14 +20,14 @@ library(lme4)
 library(lubridate)
 library(syuzhet)
 library(textstem)
-
+library(tidytext)
 ```
 
 ## Data Processing
 
 ```{r}
 #load the original data
-full_data <- read_csv("../Data/Training.csv")
+full_data <- read_csv("Training.csv")
 #check the number of unique match ID
 length(unique(full_data$`Match ID 18Char`)) #3275
 #calculate the length between calls and match closure date
@@ -266,19 +266,21 @@ ggplot(ended_match, aes(x = as.factor(same_race_ethnicity), fill = as.factor(clo
 predictors <- c(risk_flag_cols, "age_difference", "same_gender", "same_race_ethnicity")
 glm1 <- glm(closure_3_to_6 ~ .,                   
             data = ended_match %>% select(closure_3_to_6, all_of(predictors)),                  
-            family = "binomial")
+            family = "binomial") 
 summary(glm1)
 significant_predictors <- c(
   "scheduling_issues_flag",
   "relationship_strain_flag",
   "match_concerns_flag",
+  "life_changes_flag",
   "personality_flag",
+  "commitment_flag",
+  "experience_flag",
   "proximity_flag",
   "age_difference",
   "same_gender",
   "same_race_ethnicity",
-  "emotional_distress_flag",
-  "commitment_flag"
+  "emotional_distress_flag"
 )
 glm2 <- glm(closure_3_to_6 ~ .,                   
                      data = ended_match %>% select(closure_3_to_6, all_of(significant_predictors)),                  
@@ -287,16 +289,16 @@ summary(glm2)
 #check goodness of fit of Binomial model
 aug <- broom::augment(glm2, type.predict = "response", type.residuals = "deviance")
 broom::glance(glm2) %>% knitr::kable(digit = 3)
-1-pchisq(5198.672, df = 5358)
+1-pchisq(5187.35, df = 5358) #fail to reject the reduced model
 #rename match ID 
 ended_match <- ended_match %>%
   rename(match_id = `Match ID 18Char`)
 #fit a logistic model with a random intercept for each match
 glmm1 <- glmer(
   formula = closure_3_to_6 ~ age_difference + same_gender + same_race_ethnicity + 
-              scheduling_issues_flag + relationship_strain_flag + 
+              scheduling_issues_flag + relationship_strain_flag + experience_flag +
               match_concerns_flag + personality_flag + proximity_flag + 
-              emotional_distress_flag + commitment_flag + 
+              emotional_distress_flag + commitment_flag + life_changes_flag +
               (1 | match_id),
   data = ended_match, 
   family = binomial
@@ -305,10 +307,10 @@ summary(glmm1)
 (LRT <- 2*as.numeric(logLik(glmm1) - logLik(glm2)))
 0.5*(1-pchisq(LRT, 0)) + 0.5*(1-pchisq(LRT, 1))
 glmm2 <- glmer(
-  formula = closure_3_to_6 ~ age_difference + same_gender +
+  formula = closure_3_to_6 ~ age_difference + same_gender + 
               scheduling_issues_flag + relationship_strain_flag + 
               match_concerns_flag + personality_flag + proximity_flag + 
-              emotional_distress_flag + 
+              emotional_distress_flag + life_changes_flag +
               (1 | match_id),
   data = ended_match, 
   family = binomial

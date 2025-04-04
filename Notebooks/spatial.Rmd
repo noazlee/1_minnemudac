@@ -1,0 +1,81 @@
+---
+title: "MinneMUDAC DS - Match Length Spatial Analysis"
+subtitle: "Mia Wang"
+output:
+  pdf_document: default
+  html_document: default
+  
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, 
+                      prompt = FALSE, 
+                      message = FALSE, warning = FALSE, fig.align = "center")
+library(tidyverse)
+library(sp)
+library(tigris)
+library(ggmap)
+library(tidycensus)
+library(maditr)
+library(spdep)
+library(spatialreg)
+library(gridExtra)
+library(sf)
+library(here)
+library(dplyr)
+library(rdist)
+library(geosphere)
+library(readxl)
+```
+
+
+```{r}
+#load the original data
+full_data <- read_csv("Training.csv")
+#create average match length data by census block group
+match_length_little <- full_data %>%
+  filter(!is.na(`Little Mailing Address Census Block Group`)) %>%  
+  group_by(`Little Mailing Address Census Block Group`) %>%
+  summarise(
+    avg_match_length = mean(`Match Length`),
+    n = n()
+  ) %>%
+  mutate(BG_ID = as.character(`Little Mailing Address Census Block Group`))
+match_length_big <- full_data %>%
+  filter(!is.na(`Big Home Census Block Group`)) %>%  
+  group_by(`Big Home Census Block Group`) %>%
+  summarise(
+    avg_match_length = mean(`Match Length`),
+    n = n()
+  ) %>%
+  mutate(BG_ID = as.character(`Big Home Census Block Group`))
+
+# load in census tracts and block groups
+mn_tracts <- tracts(state = "MN", county = c("Hennepin", "Ramsey"), year = 2021)
+mn_tracts <- as_Spatial(mn_tracts)
+mn_bgs <- block_groups(state = "MN", county = c("Hennepin", "Ramsey"), year = 2021)
+mn_bgs <- as_Spatial(mn_bgs)
+mn_bgs_sf <- st_as_sf(mn_bgs)
+little_bgs <- left_join(mn_bgs_sf, match_length_little,
+                          by = c("GEOID" = "BG_ID"))
+big_bgs <- left_join(mn_bgs_sf, match_length_big,
+                          by = c("GEOID" = "BG_ID"))
+
+mn_map <- ggmap(get_stadiamap(
+  c(left = -93.8, bottom = 44.75, right = -92.9, top = 45.3),
+  source = "stamen",
+  zoom = 11,
+  color = "bw"
+))
+
+mn_map + geom_sf(aes(geometry = geometry, fill = avg_match_length), 
+                    data = little_bgs, col = "black",
+                    linewidth = 0.5, inherit.aes = FALSE) +
+  scale_fill_distiller(palette = "Spectral", label = scales::comma,
+                       na.value = "gray") + theme_void()
+mn_map + geom_sf(aes(geometry = geometry, fill = avg_match_length), 
+                    data = big_bgs, col = "black",
+                    linewidth = 0.5, inherit.aes = FALSE) +
+  scale_fill_distiller(palette = "Spectral", label = scales::comma,
+                       na.value = "gray") + theme_void()
+```
